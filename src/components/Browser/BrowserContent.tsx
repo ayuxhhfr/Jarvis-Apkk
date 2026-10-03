@@ -81,7 +81,7 @@ export const BrowserContent: React.FC<BrowserContentProps> = ({
   // Do not leave a broken m.youtube.com ERR_BLOCKED_BY_RESPONSE page on screen.
   // The JARVIS browser remains authoritative; the user can hand the page to the
   // device browser when the target site forbids embedding.
-  const isYoutube = /(?:^|\\.)youtube\\.com$|(?:^|\\.)youtube-nocookie\\.com$/i.test(domain);
+  const isYoutube = /(?:^|\.)youtube\.com$|(?:^|\.)youtube-nocookie\.com$/i.test(domain);
 
   if (isYoutube) {
     return (
