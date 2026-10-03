@@ -818,6 +818,13 @@ export function useAssistant() {
 
   sendTextMessageRef.current = sendTextMessage;
 
+  const loadConversation = useCallback((conversation: ChatMessage[]) => {
+    stopPlayback();
+    setAssistantSpeaking(false);
+    setMessages(Array.isArray(conversation) ? conversation : []);
+    setState("idle");
+  }, [stopPlayback, setAssistantSpeaking]);
+
   const clearMessages = useCallback(() => {
     setMessages([]);
     try {
@@ -927,6 +934,7 @@ export function useAssistant() {
     sendTextMessage,
     handleInterrupt,
     clearMessages,
+    loadConversation,
     dismissError,
     deliverGreeting,
     reconnect: connectLive,
