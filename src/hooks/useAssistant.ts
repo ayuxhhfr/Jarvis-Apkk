@@ -412,7 +412,6 @@ export function useAssistant() {
     // Tool call received from Gemini Live
     const unsubToolCall = geminiLive.onToolCall(async (toolCall) => {
       let result: any = { success: true };
-      let naturalFeedback = "";
 
       try {
         if (toolCall.name === "start_screen_share") {
@@ -453,16 +452,6 @@ export function useAssistant() {
         } else {
           // Browser tools
           result = browserManager.executeTool(toolCall.name, toolCall.args);
-          if (toolCall.name === "open_website") {
-            const url = toolCall.args?.url || "";
-            naturalFeedback = /youtube/i.test(url) ? "Sure, opening YouTube." : "Opening website.";
-          } else if (toolCall.name === "search_youtube") {
-            naturalFeedback = `Searching YouTube for ${toolCall.args?.query || ""}.`;
-          } else if (toolCall.name === "search_google") {
-            naturalFeedback = `Searching Google for ${toolCall.args?.query || ""}.`;
-          } else if (toolCall.name === "close_browser") {
-            naturalFeedback = "Closing the browser.";
-          }
         }
       } catch (err) {
         console.warn("Tool execution warning:", err);
