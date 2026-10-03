@@ -326,6 +326,20 @@ export class GeminiLiveService {
       return;
     }
 
+    if (msg.sessionResumptionUpdate) {
+      const update = msg.sessionResumptionUpdate;
+      if (update?.resumable && update?.newHandle) {
+        this.sessionResumptionHandle = String(update.newHandle);
+        console.log("[GeminiLive Android] Session resumption handle updated");
+      }
+      return;
+    }
+
+    if (msg.goAway) {
+      console.log("[GeminiLive Android] Google requested reconnect", msg.goAway);
+      return;
+    }
+
     if (msg.setupComplete) {
       if (this.handshakeTimer !== null) {
         window.clearTimeout(this.handshakeTimer);
