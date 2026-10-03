@@ -359,19 +359,6 @@ export class MemoryService {
     }
     if (/^(?:kya\s+yaad\s+hai|meri\s+memory|memory\s+dikha|yaadein\s+dikha)/i.test(lower)) return { type: "query" };
 
-    // Natural identity statements should become persistent personal memories too.
-    // Example: "I'm Void" -> "The user's name is Void".
-    const identityMatch = text.match(
-      /^(?:i['’]?m|i\s+am|my\s+name\s+is|call\s+me)\s+([A-Za-z][A-Za-z0-9_ -]{1,40})[.!?]?$/i
-    );
-    if (identityMatch) {
-      const name = identityMatch[1].trim().replace(/[.!?]+$/, "");
-      return {
-        type: "save",
-        content: "The user's name is " + name,
-        category: "personal",
-      };
-    }
     if (/^(?:sab\s+bhool|meri\s+saari\s+memory\s+(?:delete|clear)|memory\s+clear)/i.test(lower)) return { type: "clear" };
     if (/^(?:ye\s+bhool|isko\s+bhool|bhool\s+jao|forget\s+this)\b/i.test(lower)) {
       const target = text.replace(/^(?:ye\s+bhool|isko\s+bhool|bhool\s+jao|forget\s+this)\s*/i, "").trim();
