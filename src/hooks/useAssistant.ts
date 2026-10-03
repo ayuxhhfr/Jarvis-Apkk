@@ -174,15 +174,21 @@ export function useAssistant() {
       settings.assistantName,
       settings.voice
     );
-    const fullInstruction =
-      (settings.systemInstruction || JARVIS_SYSTEM_INSTRUCTION) + "\n" + temporalContext;
+    void (async () => {
+      const persistentMemory = await memoryService.getPersistentContext();
+      const fullInstruction =
+        (settings.systemInstruction || JARVIS_SYSTEM_INSTRUCTION) +
+        "\n" +
+        temporalContext +
+        persistentMemory;
 
-    connectLive({
-      voice: settings.voice,
-      systemInstruction: fullInstruction,
-      model: settings.liveModel,
-      thinkingLevel: settings.thinkingLevel,
-    });
+      connectLive({
+        voice: settings.voice,
+        systemInstruction: fullInstruction,
+        model: settings.liveModel,
+        thinkingLevel: settings.thinkingLevel,
+      });
+    })();
   }, [connectLive]);
 
   // Sync settings changes with Live session if reconfigured
@@ -208,8 +214,12 @@ export function useAssistant() {
               updated.assistantName,
               updated.voice
             );
+            const persistentMemory = await memoryService.getPersistentContext();
             const fullInstruction =
-              (updated.systemInstruction || JARVIS_SYSTEM_INSTRUCTION) + "\n" + temporal;
+              (updated.systemInstruction || JARVIS_SYSTEM_INSTRUCTION) +
+              "\n" +
+              temporal +
+              persistentMemory;
 
             connectLive({
               voice: updated.voice,
@@ -524,7 +534,21 @@ export function useAssistant() {
         setAssistantSpeaking(false);
 
         if (!geminiLive.connected) {
-          await connectLive();
+          const persistentMemory = await memoryService.getPersistentContext();
+          const temporal = sessionService.getTemporalContext(
+            settingsRef.current.assistantName,
+            settingsRef.current.voice
+          );
+          await connectLive({
+            voice: settingsRef.current.voice,
+            systemInstruction:
+              (settingsRef.current.systemInstruction || JARVIS_SYSTEM_INSTRUCTION) +
+              "\n" +
+              temporal +
+              persistentMemory,
+            model: settingsRef.current.liveModel,
+            thinkingLevel: settingsRef.current.thinkingLevel,
+          });
         }
 
         setState("listening");
@@ -553,7 +577,23 @@ export function useAssistant() {
           stopPlayback();
           setAssistantSpeaking(false);
         }
-        if (!geminiLive.connected) await connectLive();
+        if (!geminiLive.connected) {
+          const persistentMemory = await memoryService.getPersistentContext();
+          const temporal = sessionService.getTemporalContext(
+            settingsRef.current.assistantName,
+            settingsRef.current.voice
+          );
+          await connectLive({
+            voice: settingsRef.current.voice,
+            systemInstruction:
+              (settingsRef.current.systemInstruction || JARVIS_SYSTEM_INSTRUCTION) +
+              "\n" +
+              temporal +
+              persistentMemory,
+            model: settingsRef.current.liveModel,
+            thinkingLevel: settingsRef.current.thinkingLevel,
+          });
+        }
         setState("listening");
         if (settingsRef.current.selectedProfileId === "ira" && ASSISTANT_PROFILES.ira.initialGreeting) {
           const profile = ASSISTANT_PROFILES.ira;
