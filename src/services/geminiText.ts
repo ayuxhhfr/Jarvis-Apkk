@@ -192,20 +192,16 @@ If nothing durable exists, return {"shouldRemember":false,"memories":[],"reason"
     };
 
     try {
-      const res = await fetch("/api/gemini/chat", {
+      const res = await fetch("/api/gemini/memory-classify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: prompt, systemInstruction: system, model: MEMORY_MODEL, history: [] }),
+        body: JSON.stringify({ message: prompt, systemInstruction: system }),
       });
-      if (!res.ok) throw new Error(`Memory classifier HTTP ${res.status}`);
-      const raw = await res.text();
-      const text = raw.split("\n").filter(Boolean).map((line) => {
-        if (!line.startsWith("data: ")) return "";
-        const data = line.slice(6).trim();
-        if (data === "[DONE]") return "";
-        try { return JSON.parse(data).text || ""; } catch { return ""; }
-      }).join("").trim();
-      return parse(text);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Memory classifier HTTP ${res.status}`);
+      }
+      return parse(JSON.stringify(await res.json()));
     } catch (serverErr) {
       if (!isAndroidApp()) return { shouldRemember: false, memories: [], reason: "classifier unavailable" };
       try {
