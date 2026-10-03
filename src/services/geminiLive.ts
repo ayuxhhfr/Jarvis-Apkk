@@ -1,10 +1,12 @@
 /**
  * Gemini Live API Client Service.
- * Isolates WebSocket session communication with the Gemini Live API backend.
- * Streams real-time audio and progressive text transcripts.
+ * Desktop/web uses the existing JARVIS server bridge.
+ * Android connects directly to Google's Live WebSocket using the API key
+ * entered in JARVIS Settings, so the APK does not need a local Node server.
  */
 
 import { LIVE_MODEL, VOICE, THINKING_LEVEL } from "../config/jarvisConfig";
+import { getAndroidApiKey, isAndroidApp } from "./androidRuntime";
 
 export interface LiveSessionConfig {
   model?: string;
@@ -18,12 +20,11 @@ export type LiveEventCallback<T> = (data: T) => void;
 
 export class GeminiLiveService {
   private ws: WebSocket | null = null;
-  private isConnecting: boolean = false;
-  private isConnected: boolean = false;
-  private reconnectTimeout: number | null = null;
+  private isConnecting = false;
+  private isConnected = false;
   private lastConfig: LiveSessionConfig | null = null;
+  private setupReady = false;
 
-  // Callbacks
   private onConnectCallbacks: Array<() => void> = [];
   private onDisconnectCallbacks: Array<() => void> = [];
   private onErrorCallbacks: Array<(error: string) => void> = [];
@@ -34,82 +35,120 @@ export class GeminiLiveService {
   private onToolCallCallbacks: Array<(toolCall: { id: string; name: string; args: Record<string, any> }) => void> = [];
   private onUserTranscriptCallbacks: Array<(data: { text: string; finished: boolean }) => void> = [];
 
-  constructor() {}
-
   public get connected(): boolean {
-    return this.isConnected;
+    return this.isConnected && this.setupReady;
   }
 
   public get connecting(): boolean {
     return this.isConnecting;
   }
 
-  /**
-   * Send re-configuration payload to existing WebSocket session.
-   */
   public reconfigure(customConfig: LiveSessionConfig): void {
     this.lastConfig = customConfig;
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      const setupPayload = {
-        type: "setup",
-        model: customConfig.model || LIVE_MODEL,
-        voice: customConfig.voice || VOICE,
-        thinkingLevel: customConfig.thinkingLevel || THINKING_LEVEL,
-        systemInstruction: customConfig.systemInstruction,
-        greeting: customConfig.greeting,
-      };
-      this.ws.send(JSON.stringify(setupPayload));
+
+    // Live setup is immutable for an active session. Reconnect cleanly.
+    if (this.isConnected || this.isConnecting) {
+      this.disconnect();
+      void this.connect(customConfig);
     }
   }
 
-  /**
-   * Connect to the Gemini Live session.
-   */
   public async connect(customConfig?: LiveSessionConfig): Promise<void> {
-    if (customConfig) {
-      this.lastConfig = customConfig;
+    if (customConfig) this.lastConfig = customConfig;
+
+    if (this.connected) {
+      if (customConfig) this.reconfigure(customConfig);
+      return;
     }
 
-    if (this.isConnected || this.isConnecting) {
-      if (customConfig) {
-        this.reconfigure(customConfig);
-      }
+    if (this.isConnecting) {
+      await this.waitUntilConnected();
       return;
     }
 
     this.isConnecting = true;
+    this.setupReady = false;
 
     try {
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const host = window.location.host;
-      const wsUrl = `${protocol}//${host}/api/live-ws`;
+      if (isAndroidApp()) {
+        const apiKey = getAndroidApiKey().trim();
+        if (!apiKey) {
+          throw new Error("Add your Gemini API key in Settings first.");
+        }
 
-      this.ws = new WebSocket(wsUrl);
+        const wsUrl =
+          "wss://generativelanguage.googleapis.com/ws/" +
+          "google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent" +
+          "?key=" + encodeURIComponent(apiKey);
+
+        this.ws = new WebSocket(wsUrl);
+      } else {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const host = window.location.host;
+        this.ws = new WebSocket(`${protocol}//${host}/api/live-ws`);
+      }
 
       this.ws.onopen = () => {
-        this.isConnected = true;
-        this.isConnecting = false;
-
         const activeConfig = customConfig || this.lastConfig;
+        const model = activeConfig?.model || LIVE_MODEL;
+        const voice = activeConfig?.voice || VOICE;
+        const thinkingLevel = activeConfig?.thinkingLevel || THINKING_LEVEL;
+        const systemInstruction = activeConfig?.systemInstruction;
 
-        // Send initial session setup message
-        const setupPayload = {
-          type: "setup",
-          model: activeConfig?.model || LIVE_MODEL,
-          voice: activeConfig?.voice || VOICE,
-          thinkingLevel: activeConfig?.thinkingLevel || THINKING_LEVEL,
-          systemInstruction: activeConfig?.systemInstruction,
-          greeting: activeConfig?.greeting,
-        };
-        this.ws?.send(JSON.stringify(setupPayload));
+        if (isAndroidApp()) {
+          // Raw Live API WebSocket protocol.
+          // Gemini 3.1 supports minimal/low/medium/high thinking levels.
+          const setup: any = {
+            model: model.startsWith("models/") ? model : `models/${model}`,
+            generationConfig: {
+              responseModalities: ["AUDIO"],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: {
+                    voiceName: voice,
+                  },
+                },
+              },
+              thinkingConfig: {
+                thinkingLevel: String(thinkingLevel || "minimal").toLowerCase(),
+              },
+            },
+            inputAudioTranscription: {},
+            outputAudioTranscription: {},
+          };
 
-        this.onConnectCallbacks.forEach((cb) => cb());
+          if (systemInstruction) {
+            setup.systemInstruction = {
+              parts: [{ text: systemInstruction }],
+            };
+          }
+
+          this.ws?.send(JSON.stringify({ setup }));
+        } else {
+          this.ws?.send(
+            JSON.stringify({
+              type: "setup",
+              model,
+              voice,
+              thinkingLevel,
+              systemInstruction,
+              greeting: activeConfig?.greeting,
+            })
+          );
+        }
       };
 
       this.ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
 
+          // Android: Google's raw Live API protocol.
+          if (isAndroidApp()) {
+            this.handleAndroidMessage(msg);
+            return;
+          }
+
+          // Desktop/web: existing JARVIS server bridge protocol.
           if (msg.type === "sessionReady") {
             console.log(
               `[GeminiLive Client] Live session confirmed ready. Active Voice: "${msg.voice}" (requested: "${msg.requestedVoice}"), Model: "${msg.model}"`
@@ -118,30 +157,15 @@ export class GeminiLiveService {
           }
 
           if (msg.error) {
-            this.onErrorCallbacks.forEach((cb) => cb(msg.error));
+            this.emitError(String(msg.error));
             return;
           }
 
-          if (msg.audio) {
-            this.onAudioCallbacks.forEach((cb) => cb(msg.audio));
-          }
-
-          if (msg.text) {
-            this.onTextChunkCallbacks.forEach((cb) => cb(msg.text));
-          }
-
-          if (msg.interrupted) {
-            this.onInterruptedCallbacks.forEach((cb) => cb());
-          }
-
-          if (msg.turnComplete) {
-            this.onTurnCompleteCallbacks.forEach((cb) => cb());
-          }
-
-          if (msg.toolCall) {
-            this.onToolCallCallbacks.forEach((cb) => cb(msg.toolCall));
-          }
-
+          if (msg.audio) this.onAudioCallbacks.forEach((cb) => cb(msg.audio));
+          if (msg.text) this.onTextChunkCallbacks.forEach((cb) => cb(msg.text));
+          if (msg.interrupted) this.onInterruptedCallbacks.forEach((cb) => cb());
+          if (msg.turnComplete) this.onTurnCompleteCallbacks.forEach((cb) => cb());
+          if (msg.toolCall) this.onToolCallCallbacks.forEach((cb) => cb(msg.toolCall));
           if (msg.userTranscript) {
             this.onUserTranscriptCallbacks.forEach((cb) =>
               cb({ text: msg.userTranscript, finished: !!msg.finished })
@@ -154,89 +178,225 @@ export class GeminiLiveService {
 
       this.ws.onerror = () => {
         this.isConnecting = false;
-        this.onErrorCallbacks.forEach((cb) => cb("Live session WebSocket connection interrupted. Retrying..."));
+        this.setupReady = false;
+        this.emitError("Live session WebSocket connection failed.");
       };
 
       this.ws.onclose = () => {
         this.isConnected = false;
         this.isConnecting = false;
+        this.setupReady = false;
+        this.ws = null;
         this.onDisconnectCallbacks.forEach((cb) => cb());
       };
+
+      await this.waitUntilConnected();
     } catch (err) {
       this.isConnecting = false;
       this.isConnected = false;
+      this.setupReady = false;
       const errorMsg = err instanceof Error ? err.message : "Failed to connect to Live session";
-      this.onErrorCallbacks.forEach((cb) => cb(errorMsg));
+      this.emitError(errorMsg);
+      throw err;
     }
   }
 
-  /**
-   * Send microphone PCM audio chunk (16kHz base64).
-   */
+  private waitUntilConnected(timeoutMs = 15000): Promise<void> {
+    if (this.connected) return Promise.resolve();
+
+    return new Promise((resolve, reject) => {
+      const started = Date.now();
+
+      const check = () => {
+        if (this.connected) {
+          resolve();
+          return;
+        }
+
+        if (!this.isConnecting && !this.ws) {
+          reject(new Error("Live session disconnected before setup completed."));
+          return;
+        }
+
+        if (Date.now() - started >= timeoutMs) {
+          reject(new Error("Timed out while connecting to Gemini Live."));
+          return;
+        }
+
+        window.setTimeout(check, 50);
+      };
+
+      check();
+    });
+  }
+
+  private handleAndroidMessage(msg: any): void {
+    if (msg.setupComplete) {
+      this.setupReady = true;
+      this.isConnected = true;
+      this.isConnecting = false;
+      this.onConnectCallbacks.forEach((cb) => cb());
+      return;
+    }
+
+    if (msg.toolCall?.functionCalls) {
+      for (const call of msg.toolCall.functionCalls) {
+        this.onToolCallCallbacks.forEach((cb) =>
+          cb({
+            id: String(call.id || ""),
+            name: String(call.name || ""),
+            args: call.args || {},
+          })
+        );
+      }
+    }
+
+    if (msg.toolCallCancellation) {
+      return;
+    }
+
+    const content = msg.serverContent;
+    if (!content) return;
+
+    if (content.interrupted) {
+      this.onInterruptedCallbacks.forEach((cb) => cb());
+    }
+
+    // A single server event may contain multiple parts. Process all of them.
+    for (const part of content.modelTurn?.parts || []) {
+      const inlineData = part?.inlineData;
+      if (inlineData?.data) {
+        this.onAudioCallbacks.forEach((cb) => cb(String(inlineData.data)));
+      }
+
+      if (typeof part?.text === "string" && part.text) {
+        this.onTextChunkCallbacks.forEach((cb) => cb(part.text));
+      }
+    }
+
+    const inputTranscript =
+      content.inputTranscription?.text ||
+      content.interimInputTranscription?.text;
+
+    if (inputTranscript) {
+      this.onUserTranscriptCallbacks.forEach((cb) =>
+        cb({
+          text: String(inputTranscript),
+          finished: !!content.inputTranscription?.text,
+        })
+      );
+    }
+
+    if (content.outputTranscription?.text) {
+      this.onTextChunkCallbacks.forEach((cb) =>
+        cb(String(content.outputTranscription.text))
+      );
+    }
+
+    if (content.turnComplete) {
+      this.onTurnCompleteCallbacks.forEach((cb) => cb());
+    }
+  }
+
   public sendAudio(base64Pcm: string): void {
-    if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      return;
+    if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
+    if (isAndroidApp()) {
+      this.ws.send(
+        JSON.stringify({
+          realtimeInput: {
+            audio: {
+              data: base64Pcm,
+              mimeType: "audio/pcm;rate=16000",
+            },
+          },
+        })
+      );
+    } else {
+      this.ws.send(JSON.stringify({ audio: base64Pcm }));
     }
-    this.ws.send(JSON.stringify({ audio: base64Pcm }));
   }
 
-  /**
-   * Send screen frame image chunk (JPEG base64) to the Live session.
-   */
-  public sendScreenFrame(base64Image: string, mimeType: string = "image/jpeg"): void {
-    if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      return;
+  public sendScreenFrame(base64Image: string, mimeType = "image/jpeg"): void {
+    if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
+    if (isAndroidApp()) {
+      this.ws.send(
+        JSON.stringify({
+          realtimeInput: {
+            video: {
+              data: base64Image,
+              mimeType,
+            },
+          },
+        })
+      );
+    } else {
+      this.ws.send(JSON.stringify({ type: "screenFrame", image: base64Image, mimeType }));
     }
-    this.ws.send(JSON.stringify({ type: "screenFrame", image: base64Image, mimeType }));
   }
 
-  /**
-   * Send a text message turn to the live session.
-   */
   public sendText(text: string): void {
-    if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      return;
+    if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
+    if (isAndroidApp()) {
+      // Gemini 3.1 uses realtimeInput for text during an active session.
+      this.ws.send(JSON.stringify({ realtimeInput: { text } }));
+    } else {
+      this.ws.send(JSON.stringify({ type: "text", text }));
     }
-    this.ws.send(JSON.stringify({ type: "text", text }));
   }
 
-  /**
-   * Send interruption signal to cancel current model generation on server.
-   */
   public sendInterrupt(): void {
-    if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      return;
+    if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
+    if (isAndroidApp()) {
+      this.ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }));
+    } else {
+      this.ws.send(JSON.stringify({ type: "interrupt" }));
     }
-    this.ws.send(JSON.stringify({ type: "interrupt" }));
   }
 
-  /**
-   * Send tool execution result back to Gemini Live session.
-   */
   public sendToolResponse(id: string, name: string, response: Record<string, any>): void {
-    if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      return;
+    if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
+    if (isAndroidApp()) {
+      this.ws.send(
+        JSON.stringify({
+          toolResponse: {
+            functionResponses: [
+              {
+                id,
+                name,
+                response,
+              },
+            ],
+          },
+        })
+      );
+    } else {
+      this.ws.send(JSON.stringify({ type: "toolResponse", id, name, response }));
     }
-    this.ws.send(JSON.stringify({ type: "toolResponse", id, name, response }));
   }
 
-  /**
-   * Disconnect the Live session.
-   */
   public disconnect(): void {
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
-    }
     if (this.ws) {
-      this.ws.close();
+      try {
+        this.ws.close();
+      } catch {
+        // Ignore close errors.
+      }
       this.ws = null;
     }
+
     this.isConnected = false;
     this.isConnecting = false;
+    this.setupReady = false;
   }
 
-  // --- Subscriptions ---
+  private emitError(message: string): void {
+    this.onErrorCallbacks.forEach((cb) => cb(message));
+  }
 
   public onConnect(callback: () => void): () => void {
     this.onConnectCallbacks.push(callback);
