@@ -25,6 +25,11 @@ export class GeminiLiveService {
   private lastConfig: LiveSessionConfig | null = null;
   private setupReady = false;
   private handshakeTimer: number | null = null;
+  private reconnectTimer: number | null = null;
+  private reconnectAttempts = 0;
+  private reconnectPending = false;
+  private intentionalDisconnect = false;
+  private sessionResumptionHandle: string | null = null;
 
   private onConnectCallbacks: Array<() => void> = [];
   private onDisconnectCallbacks: Array<() => void> = [];
@@ -69,6 +74,8 @@ export class GeminiLiveService {
 
     this.isConnecting = true;
     this.setupReady = false;
+    this.reconnectPending = false;
+    this.intentionalDisconnect = false;
 
     try {
       if (isAndroidApp()) {
@@ -130,6 +137,10 @@ export class GeminiLiveService {
             },
             inputAudioTranscription: {},
             outputAudioTranscription: {},
+            // Keep Live sessions resumable when Google rotates the WebSocket.
+            sessionResumption: this.sessionResumptionHandle
+              ? { handle: this.sessionResumptionHandle }
+              : {},
           };
 
           if (systemInstruction) {
@@ -199,27 +210,59 @@ export class GeminiLiveService {
       };
 
       this.ws.onerror = () => {
-        this.isConnecting = false;
-        this.setupReady = false;
-        this.emitError("Live session WebSocket connection failed.");
+        console.error("[GeminiLive] WebSocket error");
+        // onclose contains the useful close code/reason and owns reconnect/error handling.
       };
 
       this.ws.onclose = (event) => {
         const wasConnecting = this.isConnecting && !this.setupReady;
+        const wasConnected = this.isConnected && this.setupReady;
+
         this.isConnected = false;
-        this.isConnecting = false;
         this.setupReady = false;
         this.ws = null;
 
-        if (wasConnecting && isAndroidApp()) {
+        if (this.handshakeTimer !== null) {
+          window.clearTimeout(this.handshakeTimer);
+          this.handshakeTimer = null;
+        }
+
+        if (isAndroidApp() && !this.intentionalDisconnect) {
           const detail = [event.code ? `code ${event.code}` : "", event.reason || ""]
             .filter(Boolean)
             .join(": ");
-          this.emitError(
-            detail
-              ? `Gemini Live connection closed (${detail}).`
-              : "Gemini Live connection closed before setup completed."
-          );
+
+          // Transient Live disconnects should recover silently instead of
+          // freezing the UI or immediately showing a scary error banner.
+          if (this.reconnectAttempts < 2) {
+            this.reconnectAttempts += 1;
+            this.reconnectPending = true;
+            this.isConnecting = false;
+            const delay = this.reconnectAttempts === 1 ? 250 : 750;
+            console.warn("[GeminiLive Android] reconnecting after disconnect", {
+              attempt: this.reconnectAttempts,
+              delay,
+              detail,
+              wasConnecting,
+              wasConnected,
+            });
+            this.reconnectTimer = window.setTimeout(() => {
+              this.reconnectTimer = null;
+              if (!this.reconnectPending || this.intentionalDisconnect) return;
+              this.reconnectPending = false;
+              void this.connect(this.lastConfig || undefined).catch(() => {});
+            }, delay);
+          } else {
+            this.isConnecting = false;
+            this.reconnectPending = false;
+            this.emitError(
+              detail
+                ? `Gemini Live disconnected (${detail}). Retried automatically.`
+                : "Gemini Live disconnected. Retried automatically."
+            );
+          }
+        } else {
+          this.isConnecting = false;
         }
 
         this.onDisconnectCallbacks.forEach((cb) => cb());
@@ -248,7 +291,7 @@ export class GeminiLiveService {
           return;
         }
 
-        if (!this.isConnecting && !this.ws) {
+        if (!this.isConnecting && !this.ws && !this.reconnectPending) {
           reject(new Error("Live session disconnected before setup completed."));
           return;
         }
@@ -272,10 +315,9 @@ export class GeminiLiveService {
         typeof error === "string"
           ? error
           : error?.message || error?.status || JSON.stringify(error);
-      this.isConnecting = false;
-      this.isConnected = false;
-      this.setupReady = false;
-      this.emitError(`Gemini Live: ${message}`);
+      // Let onclose perform the retry policy. Keep the diagnostic visible in logs,
+      // but don't turn a transient server error into a stuck UI state.
+      console.error("[GeminiLive Android] Server error:", message);
       try {
         this.ws?.close();
       } catch {
@@ -293,6 +335,8 @@ export class GeminiLiveService {
       this.setupReady = true;
       this.isConnected = true;
       this.isConnecting = false;
+      this.reconnectAttempts = 0;
+      this.reconnectPending = false;
       this.onConnectCallbacks.forEach((cb) => cb());
       return;
     }
@@ -438,6 +482,14 @@ export class GeminiLiveService {
   }
 
   public disconnect(): void {
+    this.intentionalDisconnect = true;
+    this.reconnectPending = false;
+    this.reconnectAttempts = 0;
+    if (this.reconnectTimer !== null) {
+      window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
     if (this.ws) {
       try {
         this.ws.close();
