@@ -319,8 +319,8 @@ export class MemoryService {
         return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
       }).slice(0, maxItems);
 
-      const formatted = sorted.map((m) => `- ${m.content}`).join("\\n");
-      return `\\n\\n[PERSISTENT LONG-TERM MEMORY — SURVIVES NEW SESSIONS]:\\n${formatted}\\nTreat these as durable facts/preferences about the Boss. Use them naturally; do not mention the memory store unless asked.`;
+      const formatted = sorted.map((m) => `- ${m.content}`).join("\n");
+      return `\n\n[PERSISTENT LONG-TERM MEMORY — SURVIVES NEW SESSIONS]:\n${formatted}\nTreat these as durable facts/preferences about the Boss. Use them naturally; do not mention the memory store unless asked.`;
     } catch (err) {
       console.warn("JARVIS MemoryService: Persistent context error:", err);
       return "";
