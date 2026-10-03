@@ -19,8 +19,6 @@ public class MainActivity extends BridgeActivity {
     private void enterFullscreen() {
         Window window = getWindow();
 
-        // Apply fullscreen before/after WebView startup because Android can restore
-        // system bars during focus, permission dialogs, or WebView lifecycle changes.
         window.setFlags(
                 WindowManager.LayoutParams.FLAG_FULLSCREEN,
                 WindowManager.LayoutParams.FLAG_FULLSCREEN
@@ -54,7 +52,6 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(@Nullable Bundle savedInstanceState) {
         registerPlugin(MyJarvisSpeechPlugin.class);
 
-        // Hide the status bar before Capacitor/WebView creates its first frame.
         getWindow().setFlags(
                 WindowManager.LayoutParams.FLAG_FULLSCREEN,
                 WindowManager.LayoutParams.FLAG_FULLSCREEN
@@ -78,7 +75,7 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
-    protected void onResume() {
+    public void onResume() {
         super.onResume();
         getWindow().getDecorView().postDelayed(this::enterFullscreen, 50);
         getWindow().getDecorView().postDelayed(this::enterFullscreen, 300);
