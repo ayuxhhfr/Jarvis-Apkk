@@ -4,6 +4,7 @@
  */
 
 import { CHAT_MODEL, LIVE_MODEL, VOICE } from "../config/jarvisConfig";
+import { isAndroidApp, getAndroidApiKey } from "./androidRuntime";
 
 export interface ChatRequestOptions {
   message: string;
@@ -125,6 +126,82 @@ export class GeminiTextService {
     }
 
     return fullText;
+  }
+
+  /**
+   * Ask Gemini whether a user message contains durable personal/project/preference
+   * information worth saving. This deliberately runs before local heuristics so
+   * JARVIS does not save every conversational sentence.
+   */
+  public async classifyMemoryCandidate(message: string): Promise<{
+    shouldRemember: boolean;
+    content?: string;
+    category?: "personal" | "preference" | "project" | "instruction" | "routine" | "technical" | "other";
+    importance?: number;
+    reason?: string;
+  }> {
+    const prompt = message.trim();
+    if (!prompt) return { shouldRemember: false, reason: "empty" };
+
+    const system = `You are the long-term memory gatekeeper for a personal AI assistant.
+Decide whether the USER MESSAGE contains stable information that would be useful across future conversations.
+SAVE examples: identity/name, stable preferences, coding skills/interests, technologies they use, ongoing projects, recurring routines, explicit behavioral instructions, important long-term goals.
+DO NOT SAVE: greetings, questions, temporary tasks, one-off requests, transient emotions, ordinary conversation, facts about the assistant, or information that is only useful for this single turn.
+A statement like "I like coding" SHOULD be saved as a preference/technical interest. "I am using TypeScript for this project" can be saved as technical/project context if it appears durable.
+Return ONLY valid JSON: {"shouldRemember":boolean,"content":string,"category":"personal|preference|project|instruction|routine|technical|other","importance":1-5,"reason":string}.
+Rewrite saved content as a concise third-person fact about the user. Never invent facts.`;
+
+    const body = {
+      message: prompt,
+      systemInstruction: system,
+      model: CHAT_MODEL,
+      history: [],
+    };
+
+    try {
+      const res = await fetch("/api/gemini/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`Memory classifier HTTP ${res.status}`);
+      const raw = await res.text();
+      const text = raw.split("\\n").filter(Boolean).map((line) => {
+        if (!line.startsWith("data: ")) return "";
+        const data = line.slice(6).trim();
+        if (data === "[DONE]") return "";
+        try { return JSON.parse(data).text || ""; } catch { return ""; }
+      }).join("").trim();
+      const cleaned = text.replace(/^\\s*\`\`\`(?:json)?/i, "").replace(/\`\`\`\\s*$/i, "").trim();
+      const parsed = JSON.parse(cleaned);
+      return parsed;
+    } catch (serverErr) {
+      // Android has no Node server, so use the same Gemini model directly.
+      if (!isAndroidApp()) return { shouldRemember: false, reason: "classifier unavailable" };
+      try {
+        const key = getAndroidApiKey().trim();
+        if (!key) return { shouldRemember: false, reason: "no Android Gemini key" };
+        const res = await fetch(
+          "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(CHAT_MODEL) + ":generateContent?key=" + encodeURIComponent(key),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              systemInstruction: { parts: [{ text: system }] },
+              contents: [{ role: "user", parts: [{ text: prompt }] }],
+              generationConfig: { responseMimeType: "application/json", temperature: 0 },
+            }),
+          }
+        );
+        if (!res.ok) throw new Error(`Direct memory classifier HTTP ${res.status}`);
+        const data = await res.json();
+        const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("") || "";
+        return JSON.parse(text.replace(/^\\s*\`\`\`(?:json)?/i, "").replace(/\`\`\`\\s*$/i, "").trim());
+      } catch (androidErr) {
+        console.warn("Gemini memory classifier unavailable:", serverErr, androidErr);
+        return { shouldRemember: false, reason: "classifier unavailable" };
+      }
+    }
   }
 
   /**
