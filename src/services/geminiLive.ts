@@ -96,10 +96,9 @@ export class GeminiLiveService {
         const systemInstruction = activeConfig?.systemInstruction;
 
         if (isAndroidApp()) {
-          // Android uses the current stable Gemini 3.8 Live model directly.
-          // Gemini 3.8 Live does not support thinkingLevel, so do not send
-          // thinkingConfig from the APK.
-          const androidModel = "gemini-3.8-live";
+          // Android uses the explicitly requested Gemini 3.1 Flash Live Preview.
+          // Keep minimal thinking for the lowest-latency voice interaction.
+          const androidModel = "gemini-3.1-flash-live-preview";
           const setup: any = {
             model: `models/${androidModel}`,
             generationConfig: {
