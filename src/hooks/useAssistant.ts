@@ -209,7 +209,7 @@ export function useAssistant() {
           newSettings.selectedProfileId !== undefined
         ) {
           geminiLive.disconnect();
-          setTimeout(() => {
+          setTimeout(async () => {
             const temporal = sessionService.getTemporalContext(
               updated.assistantName,
               updated.voice
