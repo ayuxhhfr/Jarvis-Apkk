@@ -25,6 +25,23 @@ import { sessionService } from "../services/sessionService";
 import { isAndroidApp } from "../services/androidRuntime";
 
 export function useAssistant() {
+  // Gemini decides whether ordinary conversation contains durable user knowledge.
+  // Explicit "remember/forget" commands still bypass this gate for deterministic control.
+  const learnImplicitMemory = useCallback(async (text: string, source: "voice_command" | "inferred") => {
+    try {
+      if (memoryService.parseMemoryIntent(text)) return;
+      const decision = await geminiText.classifyMemoryCandidate(text);
+      if (!decision.shouldRemember || !decision.content) return;
+      await memoryService.saveMemory(
+        decision.content,
+        decision.category,
+        Math.min(5, Math.max(1, Number(decision.importance) || 3)),
+        source
+      );
+    } catch (err) {
+      console.warn("Gemini memory learning skipped:", err);
+    }
+  }, []);
   const [state, setState] = useState<AssistantState>("idle");
   const [settings, setSettings] = useState<AssistantSettings>(() => {
     try {
@@ -368,7 +385,8 @@ export function useAssistant() {
             browserManager.executeTool(browserIntent.name, browserIntent.args);
           }
 
-          // 2. Check direct natural language memory intent
+          // 2. Explicit memory commands are deterministic; ordinary speech goes
+          // through Gemini's long-term-memory gatekeeper.
           const memoryIntent = memoryService.parseMemoryIntent(clean);
           if (memoryIntent) {
             if (memoryIntent.type === "save" && memoryIntent.content) {
@@ -383,6 +401,8 @@ export function useAssistant() {
             } else if (memoryIntent.type === "clear") {
               await memoryService.clearMemories();
             }
+          } else {
+            void learnImplicitMemory(clean, "voice_command");
           }
           // 3. Check screen share natural language intent
           const screenIntent = screenShareService.parseScreenShareIntent(clean);
@@ -654,7 +674,8 @@ export function useAssistant() {
         }
       }
 
-      // 3. Check if command is an explicit memory command
+      // 3. Explicit memory commands are deterministic; otherwise ask Gemini
+      // whether this message contains durable information worth remembering.
       const memoryIntent = memoryService.parseMemoryIntent(trimmed);
       if (memoryIntent) {
         try {
@@ -673,6 +694,8 @@ export function useAssistant() {
         } catch (err) {
           console.warn("Error running memory intent:", err);
         }
+      } else {
+        void learnImplicitMemory(trimmed, "inferred");
       }
 
       // 4. Retrieve relevant memory context for the current query
