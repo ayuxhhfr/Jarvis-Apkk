@@ -22,7 +22,7 @@ import { memoryService } from "../services/memoryService";
 import { defaultMemoryStore } from "../services/memoryStore";
 import { screenShareService } from "../services/screenShareService";
 import { sessionService } from "../services/sessionService";
-import { isAndroidApp, listenAndroid, stopAndroidSpeech } from "../services/androidRuntime";
+import { isAndroidApp } from "../services/androidRuntime";
 
 export function useAssistant() {
   const [state, setState] = useState<AssistantState>("idle");
@@ -85,7 +85,6 @@ export function useAssistant() {
   const [currentTranscript, setCurrentTranscript] = useState<string>("");
   const [activeError, setActiveError] = useState<string | null>(null);
   const [androidMicActive, setAndroidMicActive] = useState(false);
-  const androidStopListeningRef = useRef<(() => void) | null>(null);
   const sendTextMessageRef = useRef<(text: string) => Promise<void>>(async () => {});
 
   // Synchronization refs
@@ -530,38 +529,36 @@ export function useAssistant() {
    */
   const toggleListening = useCallback(async () => {
     if (isAndroidApp()) {
+      // Android now uses the same raw PCM Live path as desktop, but connects
+      // directly to Google's Live WebSocket instead of the Node server.
       if (androidMicActive) {
-        androidStopListeningRef.current?.();
-        androidStopListeningRef.current = null;
-        setAndroidMicActive(false);
-        await stopAndroidSpeech();
-        stopPlayback();
-        setAssistantSpeaking(false);
-        setState("idle");
+        try {
+          // Flush Google's automatic VAD before stopping the local mic.
+          sendInterrupt();
+          stopListening();
+        } finally {
+          setAndroidMicActive(false);
+          stopPlayback();
+          setAssistantSpeaking(false);
+          setState("idle");
+        }
         return;
       }
 
       try {
         stopPlayback();
         setAssistantSpeaking(false);
+
+        if (!geminiLive.connected) {
+          await connectLive();
+        }
+
         setState("listening");
         setAndroidMicActive(true);
-        androidStopListeningRef.current = await listenAndroid(
-          (text) => {
-            setAndroidMicActive(false);
-            androidStopListeningRef.current?.();
-            androidStopListeningRef.current = null;
-            void sendTextMessageRef.current(text);
-          },
-          (message) => {
-            setAndroidMicActive(false);
-            androidStopListeningRef.current = null;
-            setState("idle");
-            setActiveError(message);
-          },
-          (speechState) => {
-            if (speechState === "ready" || speechState === "speaking") setState("listening");
-          }
+
+        await startListening(
+          (base64Pcm) => sendAudio(base64Pcm),
+          () => handleInterrupt()
         );
       } catch (err) {
         setAndroidMicActive(false);
@@ -918,10 +915,8 @@ export function useAssistant() {
   );
 
   useEffect(() => () => {
-    androidStopListeningRef.current?.();
-    androidStopListeningRef.current = null;
-    void stopAndroidSpeech();
-  }, []);
+    stopListening();
+  }, [stopListening]);
 
   const overallStatus: ConnectionStatus = isAndroidApp()
     ? "online"
