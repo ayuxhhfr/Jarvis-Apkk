@@ -55,6 +55,8 @@ export const Settings: React.FC<SettingsProps> = ({
   const [savedNotice, setSavedNotice] = useState(false);
   const [androidApiKey, setAndroidApiKeyState] = useState("");
   const [apiKeyStatus, setApiKeyStatus] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveStep, setSaveStep] = useState<"idle" | "checking" | "saving">("idle");
 
   useEffect(() => {
     if (isOpen) {
@@ -65,6 +67,8 @@ export const Settings: React.FC<SettingsProps> = ({
       setSystemInstruction(settings.systemInstruction);
       setAndroidApiKeyState(getAndroidApiKey());
       setApiKeyStatus("");
+      setIsSaving(false);
+      setSaveStep("idle");
     }
   }, [isOpen, settings]);
 
@@ -127,17 +131,31 @@ export const Settings: React.FC<SettingsProps> = ({
   };
 
   const handleSave = async () => {
-    if (androidApiKey.trim()) {
+    if (isSaving) return;
+    setIsSaving(true);
+
+    const currentStoredKey = getAndroidApiKey().trim();
+    const enteredKey = androidApiKey.trim();
+
+    // Don't re-run a network model check when the API key hasn't changed.
+    // This makes normal settings saves effectively instant.
+    if (enteredKey && enteredKey !== currentStoredKey) {
       try {
-        await validateAndroidApiKey(androidApiKey);
-        setApiKeyStatus("API key verified");
+        setSaveStep("checking");
+        setApiKeyStatus("Checking Gemini API key + model access...");
+        await validateAndroidApiKey(enteredKey);
+        setApiKeyStatus("Gemini model check passed");
       } catch (err) {
+        setIsSaving(false);
+        setSaveStep("idle");
         setApiKeyStatus(err instanceof Error ? err.message : "API key validation failed");
         return;
       }
-    } else {
+    } else if (!enteredKey) {
       setAndroidApiKey("");
     }
+
+    setSaveStep("saving");
     onSave({
       selectedProfileId,
       assistantName,
@@ -525,12 +543,18 @@ export const Settings: React.FC<SettingsProps> = ({
           </button>
           <button
             onClick={handleSave}
-            className="flex items-center gap-1.5 px-5 py-2 rounded-xl text-xs font-mono uppercase tracking-wider font-semibold bg-[#00ffaa] text-black hover:bg-[#00e599] transition-all active:scale-95 shadow-lg shadow-[#00ffaa]/20 cursor-pointer"
+            disabled={isSaving}
+            className="flex items-center gap-1.5 px-5 py-2 rounded-xl text-xs font-mono uppercase tracking-wider font-semibold bg-[#00ffaa] text-black hover:bg-[#00e599] transition-all active:scale-95 shadow-lg shadow-[#00ffaa]/20 cursor-pointer disabled:opacity-70 disabled:cursor-wait"
           >
             {savedNotice ? (
               <>
                 <Check className="w-4 h-4" />
                 Saved
+              </>
+            ) : isSaving ? (
+              <>
+                <span className="w-3.5 h-3.5 rounded-full border-2 border-black/30 border-t-black animate-spin" />
+                {saveStep === "checking" ? "Checking Gemini..." : "Saving..."}
               </>
             ) : (
               "Save Changes"
