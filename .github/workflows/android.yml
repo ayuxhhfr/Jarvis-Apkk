@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# Only the newest APK build should run. A newer push cancels stale builds.
+concurrency:
+  group: jarvis-android-apk
+  cancel-in-progress: true
+
 jobs:
   build-android:
     runs-on: ubuntu-latest
