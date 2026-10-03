@@ -135,34 +135,66 @@ export class GeminiTextService {
    */
   public async classifyMemoryCandidate(message: string): Promise<{
     shouldRemember: boolean;
-    content?: string;
-    category?: "personal" | "preference" | "project" | "instruction" | "routine" | "technical" | "other";
-    importance?: number;
+    memories?: Array<{
+      content: string;
+      category: "personal" | "preference" | "project" | "instruction" | "routine" | "technical" | "other";
+      importance: number;
+    }>;
     reason?: string;
   }> {
     const prompt = message.trim();
     if (!prompt) return { shouldRemember: false, reason: "empty" };
 
-    const system = `You are the long-term memory gatekeeper for a personal AI assistant.
-Decide whether the USER MESSAGE contains stable information that would be useful across future conversations.
-SAVE examples: identity/name, stable preferences, coding skills/interests, technologies they use, ongoing projects, recurring routines, explicit behavioral instructions, important long-term goals.
-DO NOT SAVE: greetings, questions, temporary tasks, one-off requests, transient emotions, ordinary conversation, facts about the assistant, or information that is only useful for this single turn.
-A statement like "I like coding" SHOULD be saved as a preference/technical interest. "I am using TypeScript for this project" can be saved as technical/project context if it appears durable.
-Return ONLY valid JSON: {"shouldRemember":boolean,"content":string,"category":"personal|preference|project|instruction|routine|technical|other","importance":1-5,"reason":string}.
-Rewrite saved content as a concise third-person fact about the user. Never invent facts.`;
+    const system = `You are JARVIS's long-term memory intelligence layer.
+Analyze the USER MESSAGE for information that should survive future conversations.
 
-    const body = {
-      message: prompt,
-      systemInstruction: system,
-      model: CHAT_MODEL,
-      history: [],
+MEMORY SHOULD INCLUDE:
+- stable identity/profile: name, age, location if explicitly stated, role, important background
+- preferences: likes/dislikes, communication style, UI/design preferences, favorite things
+- technical profile: coding interests, languages, frameworks, tools, devices, skill areas
+- projects: projects being built, repos, apps, games, goals, ongoing work
+- instructions: durable rules for how the assistant should behave
+- routines: recurring habits/workflows
+- durable goals: long-term goals or plans
+
+IMPORTANT: "I like coding" IS a memory and must be saved.
+Also save "I use React/TypeScript", "I prefer dark UI", "I am building JARVIS", etc. when stated as durable facts.
+
+DO NOT SAVE:
+- greetings or filler
+- questions with no stable user fact
+- one-time commands/tasks
+- temporary emotions
+- facts about the assistant/provider
+- transient details only relevant to this turn
+
+Extract EVERY distinct durable fact from the message, not just one. If several facts are present, return several memory objects.
+Rewrite each as a concise third-person fact about the user. Never invent information.
+Importance: 5 = core identity/critical instruction, 4 = strong preference/project/technical profile, 3 = useful stable fact, 2 = weak preference, 1 = trivial.
+Return ONLY valid JSON:
+{"shouldRemember":true|false,"memories":[{"content":"...","category":"personal|preference|project|instruction|routine|technical|other","importance":1}],"reason":"..."}
+If nothing durable exists, return {"shouldRemember":false,"memories":[],"reason":"..."}.`;
+
+    const parse = (text: string) => {
+      const cleaned = text.replace(/^\s*```(?:json)?/i, "").replace(/```\s*$/i, "").trim();
+      const parsed = JSON.parse(cleaned);
+      if (Array.isArray(parsed.memories)) {
+        parsed.memories = parsed.memories
+          .filter((m: any) => m && typeof m.content === "string" && m.content.trim())
+          .map((m: any) => ({
+            content: m.content.trim(),
+            category: m.category || "other",
+            importance: Math.min(5, Math.max(1, Number(m.importance) || 3)),
+          }));
+      }
+      return parsed;
     };
 
     try {
       const res = await fetch("/api/gemini/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ message: prompt, systemInstruction: system, model: CHAT_MODEL, history: [] }),
       });
       if (!res.ok) throw new Error(`Memory classifier HTTP ${res.status}`);
       const raw = await res.text();
@@ -172,15 +204,12 @@ Rewrite saved content as a concise third-person fact about the user. Never inven
         if (data === "[DONE]") return "";
         try { return JSON.parse(data).text || ""; } catch { return ""; }
       }).join("").trim();
-      const cleaned = text.replace(/^\s*\`\`\`(?:json)?/i, "").replace(/\`\`\`\s*$/i, "").trim();
-      const parsed = JSON.parse(cleaned);
-      return parsed;
+      return parse(text);
     } catch (serverErr) {
-      // Android has no Node server, so use the same Gemini model directly.
-      if (!isAndroidApp()) return { shouldRemember: false, reason: "classifier unavailable" };
+      if (!isAndroidApp()) return { shouldRemember: false, memories: [], reason: "classifier unavailable" };
       try {
         const key = getAndroidApiKey().trim();
-        if (!key) return { shouldRemember: false, reason: "no Android Gemini key" };
+        if (!key) return { shouldRemember: false, memories: [], reason: "no Android Gemini key" };
         const res = await fetch(
           "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(CHAT_MODEL) + ":generateContent?key=" + encodeURIComponent(key),
           {
@@ -196,10 +225,10 @@ Rewrite saved content as a concise third-person fact about the user. Never inven
         if (!res.ok) throw new Error(`Direct memory classifier HTTP ${res.status}`);
         const data = await res.json();
         const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("") || "";
-        return JSON.parse(text.replace(/^\\s*\`\`\`(?:json)?/i, "").replace(/\`\`\`\\s*$/i, "").trim());
+        return parse(text);
       } catch (androidErr) {
         console.warn("Gemini memory classifier unavailable:", serverErr, androidErr);
-        return { shouldRemember: false, reason: "classifier unavailable" };
+        return { shouldRemember: false, memories: [], reason: "classifier unavailable" };
       }
     }
   }
