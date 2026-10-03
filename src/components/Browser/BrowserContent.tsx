@@ -77,6 +77,30 @@ export const BrowserContent: React.FC<BrowserContentProps> = ({
     }
   })();
 
+  // YouTube and several large platforms deliberately reject iframe embedding.
+  // Do not leave a broken m.youtube.com ERR_BLOCKED_BY_RESPONSE page on screen.
+  // The JARVIS browser remains authoritative; the user can hand the page to the
+  // device browser when the target site forbids embedding.
+  const isYoutube = /(?:^|\\.)youtube\\.com$|(?:^|\\.)youtube-nocookie\\.com$/i.test(domain);
+
+  if (isYoutube) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center bg-[#07090c] text-neutral-300 p-6 select-none">
+        <div className="max-w-md w-full p-6 rounded-2xl bg-[#0f1318] border border-white/[0.08] shadow-2xl flex flex-col items-center text-center space-y-4">
+          <div className="p-3 rounded-full bg-white/[0.05] border border-white/[0.08]"><Globe className="w-8 h-8 text-neutral-300" /></div>
+          <div className="space-y-1.5">
+            <h3 className="text-sm font-semibold text-white font-mono tracking-wider uppercase">YouTube requires direct browsing</h3>
+            <p className="text-xs text-neutral-400 leading-relaxed">YouTube blocks this embedded WebView/iframe path, so JARVIS will not show a misleading blocked page.</p>
+          </div>
+          <div className="flex items-center gap-2 pt-2 w-full">
+            <button onClick={onOpenExternal} className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-[#00ffaa] text-black font-mono font-medium text-xs cursor-pointer"><ExternalLink className="w-3.5 h-3.5" />Open YouTube</button>
+            <button onClick={onGoBack} className="flex items-center gap-1 px-3 py-2 rounded-xl bg-white/[0.06] text-neutral-300 font-mono text-xs cursor-pointer"><ArrowLeft className="w-3.5 h-3.5" />Back</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // 2. Blocked State (X-Frame-Options or CSP failure)
   if (isBlocked) {
     return (
