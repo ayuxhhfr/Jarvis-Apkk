@@ -19,6 +19,7 @@ import { geminiText } from "../services/geminiText";
 import { browserManager } from "../services/browserManager";
 import { parseBrowserIntent } from "../services/browserTools";
 import { memoryService } from "../services/memoryService";
+import { browserManager } from "../services/browserManager";
 import { defaultMemoryStore } from "../services/memoryStore";
 import { screenShareService } from "../services/screenShareService";
 import { sessionService } from "../services/sessionService";
