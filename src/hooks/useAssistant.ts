@@ -22,7 +22,7 @@ import { memoryService } from "../services/memoryService";
 import { defaultMemoryStore } from "../services/memoryStore";
 import { screenShareService } from "../services/screenShareService";
 import { sessionService } from "../services/sessionService";
-import { isAndroidApp, listenAndroid, generateAndroidReply, speakAndroid, stopAndroidSpeech } from "../services/androidRuntime";
+import { isAndroidApp, listenAndroid, stopAndroidSpeech } from "../services/androidRuntime";
 
 export function useAssistant() {
   const [state, setState] = useState<AssistantState>("idle");
@@ -706,47 +706,10 @@ export function useAssistant() {
         ? `${trimmed}\n\n${combinedContext}`
         : trimmed;
 
-      if (isAndroidApp()) {
-        try {
-          const assistantMsgId = (settingsRef.current.selectedProfileId || "jarvis") + "-" + Date.now();
-          setMessages((prev) => [...prev, {
-            id: assistantMsgId,
-            role: "assistant",
-            sender: (settingsRef.current.selectedProfileId || "jarvis") as any,
-            content: "",
-            text: "",
-            timestamp: Date.now(),
-            status: "streaming",
-            isStreaming: true,
-            isVoice: true,
-          }]);
-
-          const reply = await generateAndroidReply(
-            trimmed,
-            (settingsRef.current.systemInstruction || JARVIS_SYSTEM_INSTRUCTION) + "\n" + combinedContext,
-            messagesRef.current.slice(-10).map((m) => ({
-              role: m.role === "user" || m.sender === "user" ? "user" : "model",
-              text: m.content || m.text || "",
-            }))
-          );
-
-          setMessages((prev) => prev.map((m) => m.id === assistantMsgId ? {
-            ...m, content: reply, text: reply, status: "complete", isStreaming: false
-          } : m));
-
-          if (settingsRef.current.voiceEnabled) {
-            setAssistantSpeaking(true);
-            setState("speaking");
-            await speakAndroid(reply);
-          }
-          setAssistantSpeaking(false);
-          setState("idle");
-        } catch (err) {
-          setAssistantSpeaking(false);
-          setState("idle");
-          setActiveError(err instanceof Error ? err.message : "Failed to get Android response");
-        }
-        return;
+      // Android voice/text uses the same Gemini Live native-audio path.
+      // Do NOT route Android responses through generateAndroidReply()/Android TTS.
+      if (isAndroidApp() && !geminiLive.connected) {
+        await connectLive();
       }
 
       // Try Live API first if connected
