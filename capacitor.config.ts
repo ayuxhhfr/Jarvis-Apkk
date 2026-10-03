@@ -7,6 +7,9 @@ const config: CapacitorConfig = {
   android: {
     allowMixedContent: true,
   },
+  SystemBars: {
+    insetsHandling: "css",
+  },
 };
 
 export default config;
