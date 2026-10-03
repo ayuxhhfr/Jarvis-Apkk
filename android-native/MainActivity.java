@@ -14,11 +14,13 @@ import androidx.core.content.ContextCompat;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
+    private static final int AUDIO_PERMISSION = 5001;
+
     private void enterFullscreen() {
         Window window = getWindow();
-        // Apply legacy fullscreen flags as well as modern WindowInsets hiding.
-        // This is intentionally repeated because Android can restore system bars
-        // when focus/permission dialogs or the WebView lifecycle changes.
+
+        // Apply fullscreen before/after WebView startup because Android can restore
+        // system bars during focus, permission dialogs, or WebView lifecycle changes.
         window.setFlags(
                 WindowManager.LayoutParams.FLAG_FULLSCREEN,
                 WindowManager.LayoutParams.FLAG_FULLSCREEN
@@ -48,20 +50,31 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    private static final int AUDIO_PERMISSION = 5001;
-
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
         registerPlugin(MyJarvisSpeechPlugin.class);
-        // Set fullscreen before Capacitor/WebView initialization so the first frame
-        // is never laid out underneath a visible status bar.
+
+        // Hide the status bar before Capacitor/WebView creates its first frame.
         getWindow().setFlags(
                 WindowManager.LayoutParams.FLAG_FULLSCREEN,
                 WindowManager.LayoutParams.FLAG_FULLSCREEN
         );
+
         super.onCreate(savedInstanceState);
+
         enterFullscreen();
-        getWindow().getDecorView().setOnSystemUiVisibilityChangeListener(visibility -> enterFullscreen());
+        getWindow().getDecorView().setOnSystemUiVisibilityChangeListener(
+                visibility -> enterFullscreen()
+        );
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(
+                    this,
+                    new String[]{Manifest.permission.RECORD_AUDIO},
+                    AUDIO_PERMISSION
+            );
+        }
     }
 
     @Override
@@ -76,15 +89,6 @@ public class MainActivity extends BridgeActivity {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) {
             enterFullscreen();
-        }
-    }
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(
-                    this,
-                    new String[]{Manifest.permission.RECORD_AUDIO},
-                    AUDIO_PERMISSION
-            );
         }
     }
 }
