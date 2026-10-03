@@ -19,6 +19,7 @@ import { sessionService } from "./services/sessionService";
 import { useBrowser } from "./hooks/useBrowser";
 import { useAssistant } from "./hooks/useAssistant";
 import { AlertCircle, X, ChevronDown, ChevronUp } from "lucide-react";
+import { ChatSidebar, ChatSession } from "./components/ChatSidebar";
 
 export default function App() {
   const {
@@ -39,6 +40,7 @@ export default function App() {
     sendTextMessage,
     handleInterrupt,
     clearMessages,
+    loadConversation,
     dismissError,
     deliverGreeting,
   } = useAssistant();
@@ -46,6 +48,8 @@ export default function App() {
   const { browserOpen } = useBrowser();
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isChatsOpen, setIsChatsOpen] = useState(false);
+  const [activeChatId, setActiveChatId] = useState(() => sessionService.getMetadata().currentSessionId);
   const [isChatExpanded, setIsChatExpanded] = useState(false);
 
   // Live time and date for technical left information HUD
@@ -76,6 +80,30 @@ export default function App() {
       console.log("[JARVIS Return]\nNo return greeting required.");
     }
   }, [deliverGreeting, settings.voice, settings.selectedProfileId]);
+
+
+  // Keep the current conversation mirrored into the persistent sidebar index.
+  useEffect(() => {
+    if (!activeChatId) return;
+    try {
+      const key = "jarvis_chat_sessions_v2";
+      const raw = localStorage.getItem(key);
+      const sessions = raw ? JSON.parse(raw) : [];
+      const existing = Array.isArray(sessions) ? sessions : [];
+      const titleMessage = messages.find(m => m.role === "user" && (m.content || m.text));
+      const titleRaw = (titleMessage?.content || titleMessage?.text || "New conversation").trim();
+      const session = {
+        id: activeChatId,
+        title: titleRaw.length > 34 ? titleRaw.slice(0, 34) + "…" : titleRaw,
+        messages,
+        updatedAt: Date.now(),
+      };
+      const merged = existing.some((s: any) => s.id === activeChatId)
+        ? existing.map((s: any) => s.id === activeChatId ? session : s)
+        : [session, ...existing];
+      localStorage.setItem(key, JSON.stringify(merged.sort((a: any,b: any) => b.updatedAt - a.updatedAt).slice(0, 50)));
+    } catch {}
+  }, [messages, activeChatId]);
 
   useEffect(() => {
     const updateDateTime = () => {
@@ -125,6 +153,7 @@ export default function App() {
             onOpenInNewTab={() => screenShareService.openInNewTab()}
             onOpenSettings={() => setIsSettingsOpen(true)}
             onOpenBrowser={() => browserManager.open()}
+            onOpenChats={() => setIsChatsOpen(true)}
           />
 
           {/* Error Banner */}
@@ -297,6 +326,24 @@ export default function App() {
             />
           </footer>
         </div>
+      )}
+
+      {isChatsOpen && (
+        <ChatSidebar
+          messages={messages}
+          activeId={activeChatId}
+          onClose={() => setIsChatsOpen(false)}
+          onNew={() => {
+            clearMessages();
+            setActiveChatId("chat_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7));
+            setIsChatsOpen(false);
+          }}
+          onSelect={(session: ChatSession) => {
+            setActiveChatId(session.id);
+            loadConversation(session.messages);
+            setIsChatsOpen(false);
+          }}
+        />
       )}
 
       {/* Settings Modal (available from either view) */}
