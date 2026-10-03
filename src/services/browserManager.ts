@@ -241,6 +241,12 @@ class BrowserManager {
     this.notify();
   }
 
+  /** Return authoritative browser state for assistant/tool context. */
+  public getAssistantContext(): string {
+    if (!this.browserOpen) return "[BROWSER STATE: CLOSED]";
+    return `[BROWSER STATE: OPEN] URL=${this.browserUrl || "about:blank"} TITLE=${this.pageTitle} LOADING=${this.loading} BLOCKED=${this.isBlocked}`;
+  }
+
   /**
    * Context awareness: check if currently browsing YouTube.
    */
