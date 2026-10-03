@@ -96,10 +96,12 @@ export class GeminiLiveService {
         const systemInstruction = activeConfig?.systemInstruction;
 
         if (isAndroidApp()) {
-          // Raw Live API WebSocket protocol.
-          // Gemini 3.1 supports minimal/low/medium/high thinking levels.
+          // Android uses the current stable Gemini 3.8 Live model directly.
+          // Gemini 3.8 Live does not support thinkingLevel, so do not send
+          // thinkingConfig from the APK.
+          const androidModel = "gemini-3.8-live";
           const setup: any = {
-            model: model.startsWith("models/") ? model : `models/${model}`,
+            model: `models/${androidModel}`,
             generationConfig: {
               responseModalities: ["AUDIO"],
               speechConfig: {
@@ -108,9 +110,6 @@ export class GeminiLiveService {
                     voiceName: voice,
                   },
                 },
-              },
-              thinkingConfig: {
-                thinkingLevel: String(thinkingLevel || "minimal").toLowerCase(),
               },
             },
             inputAudioTranscription: {},
@@ -182,11 +181,24 @@ export class GeminiLiveService {
         this.emitError("Live session WebSocket connection failed.");
       };
 
-      this.ws.onclose = () => {
+      this.ws.onclose = (event) => {
+        const wasConnecting = this.isConnecting && !this.setupReady;
         this.isConnected = false;
         this.isConnecting = false;
         this.setupReady = false;
         this.ws = null;
+
+        if (wasConnecting && isAndroidApp()) {
+          const detail = [event.code ? `code ${event.code}` : "", event.reason || ""]
+            .filter(Boolean)
+            .join(": ");
+          this.emitError(
+            detail
+              ? `Gemini Live connection closed (${detail}).`
+              : "Gemini Live connection closed before setup completed."
+          );
+        }
+
         this.onDisconnectCallbacks.forEach((cb) => cb());
       };
 
@@ -231,6 +243,24 @@ export class GeminiLiveService {
   }
 
   private handleAndroidMessage(msg: any): void {
+    if (msg.error) {
+      const error = msg.error;
+      const message =
+        typeof error === "string"
+          ? error
+          : error?.message || error?.status || JSON.stringify(error);
+      this.isConnecting = false;
+      this.isConnected = false;
+      this.setupReady = false;
+      this.emitError(`Gemini Live: ${message}`);
+      try {
+        this.ws?.close();
+      } catch {
+        // Ignore close errors.
+      }
+      return;
+    }
+
     if (msg.setupComplete) {
       this.setupReady = true;
       this.isConnected = true;
