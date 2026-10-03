@@ -21,7 +21,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   assistantName = "JARVIS", status, screenShareStatus, onStartScreenShare,
-  onStopScreenShare, onOpenInNewTab, onOpenSettings, onOpenBrowser,
+  onStopScreenShare, onOpenInNewTab, onOpenSettings, onOpenBrowser, onOpenChats,
 }) => {
   const isSharing = screenShareStatus?.state === "SHARING";
   const isRequesting = screenShareStatus?.state === "REQUESTING";
