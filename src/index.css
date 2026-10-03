@@ -6,11 +6,25 @@
     --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
   }
 
+  html,
+  body,
+  #root {
+    width: 100%;
+    min-height: 100%;
+  }
+
   body {
     font-family: var(--font-sans);
     background-color: #08090a;
     color: #e6e8eb;
     overflow-x: hidden;
+    margin: 0;
+  }
+
+  /* Android/Capacitor can draw the WebView edge-to-edge under the status bar.
+     Keep the app content below the system status area without changing the UI layout. */
+  .jarvis-safe-top {
+    padding-top: env(safe-area-inset-top, 0px);
   }
 }
 
