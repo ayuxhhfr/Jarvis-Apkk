@@ -471,24 +471,9 @@ export function useAssistant() {
 
       geminiLive.sendToolResponse(toolCall.id, toolCall.name, result);
 
-      // Provide natural spoken feedback if assistant has not started speaking in this turn
-      if (!currentTurnIdRef.current && naturalFeedback) {
-        const id = "jarvis-" + Date.now();
-        currentTurnIdRef.current = id;
-        setMessages((prev) => [
-          ...prev,
-          {
-            id,
-            role: "assistant",
-            sender: "jarvis",
-            content: naturalFeedback,
-            text: naturalFeedback,
-            timestamp: Date.now(),
-            status: "complete",
-            isVoice: true,
-          },
-        ]);
-      }
+      // Tool protocol is intentionally invisible in chat history.
+      // Gemini's spoken/model response remains the only user-facing action feedback.
+
     });
 
     // Model turn complete
