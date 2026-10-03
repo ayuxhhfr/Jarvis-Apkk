@@ -31,13 +31,16 @@ export function useAssistant() {
     try {
       if (memoryService.parseMemoryIntent(text)) return;
       const decision = await geminiText.classifyMemoryCandidate(text);
-      if (!decision.shouldRemember || !decision.content) return;
-      await memoryService.saveMemory(
-        decision.content,
-        decision.category,
-        Math.min(5, Math.max(1, Number(decision.importance) || 3)),
-        source
-      );
+      if (!decision.shouldRemember || !decision.memories?.length) return;
+      // Save every durable fact Gemini extracted, not just a single summary.
+      for (const memory of decision.memories) {
+        await memoryService.saveMemory(
+          memory.content,
+          memory.category,
+          Math.min(5, Math.max(1, Number(memory.importance) || 3)),
+          source
+        );
+      }
     } catch (err) {
       console.warn("Gemini memory learning skipped:", err);
     }
