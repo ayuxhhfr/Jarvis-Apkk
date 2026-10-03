@@ -307,6 +307,25 @@ export class MemoryService {
     const text = rawText.trim();
     const lower = text.toLowerCase();
 
+    // Common Hinglish memory commands share the same persistent pipeline for JARVIS and Ira.
+    if (/^(?:yaad\\s+rakh|yaad\\s+rakhna|remember)\\b/i.test(lower)) {
+      const fact = text.replace(/^(?:yaad\\s+rakh(?:na)?|remember)(?:\\s+ki|\\s+that)?\\s*/i, "").trim().replace(/[.!?]+$/, "");
+      if (fact) {
+        let cleanContent = fact;
+        if (/^mera\\s+/i.test(cleanContent)) cleanContent = "The user's " + cleanContent.slice(5);
+        else if (/^meri\\s+/i.test(cleanContent)) cleanContent = "The user's " + cleanContent.slice(5);
+        else if (/^main\\s+/i.test(cleanContent)) cleanContent = "The user " + cleanContent.slice(5);
+        else if (!/^the\\s+user/i.test(cleanContent)) cleanContent = "The user: " + cleanContent;
+        return { type: "save", content: cleanContent, category: this.inferCategory(fact) };
+      }
+    }
+    if (/^(?:kya\\s+yaad\\s+hai|meri\\s+memory|memory\\s+dikha|yaadein\\s+dikha)/i.test(lower)) return { type: "query" };
+    if (/^(?:sab\\s+bhool|meri\\s+saari\\s+memory\\s+(?:delete|clear)|memory\\s+clear)/i.test(lower)) return { type: "clear" };
+    if (/^(?:ye\\s+bhool|isko\\s+bhool|bhool\\s+jao|forget\\s+this)\\b/i.test(lower)) {
+      const target = text.replace(/^(?:ye\\s+bhool|isko\\s+bhool|bhool\\s+jao|forget\\s+this)\\s*/i, "").trim();
+      if (target) return { type: "delete", target };
+    }
+
     // 1. Delete all memories / Clear memories
     if (
       /^(delete|clear|erase|wipe|remove)\s+(all\s+)?(my\s+)?memories/i.test(lower) ||
