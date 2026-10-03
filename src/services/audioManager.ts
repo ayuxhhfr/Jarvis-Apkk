@@ -24,6 +24,8 @@ export class AudioManager {
 
   private activeSources: AudioBufferSourceNode[] = [];
   private nextPlayTime: number = 0;
+  private streamPrimed: boolean = false;
+  private readonly STREAM_START_BUFFER_SECONDS = 0.12;
   private isAssistantSpeaking: boolean = false;
 
   private onAudioChunk: AudioChunkCallback | null = null;
@@ -105,7 +107,9 @@ export class AudioManager {
       source.connect(this.micAnalyser);
 
       // ScriptProcessor for 16kHz PCM chunks
-      this.scriptProcessor = this.inputAudioCtx.createScriptProcessor(4096, 1, 1);
+      // 512 samples at 16kHz = 32ms. Small chunks keep Live voice responsive
+      // and avoid the 256ms input buffering caused by the old 4096-sample block.
+      this.scriptProcessor = this.inputAudioCtx.createScriptProcessor(512, 1, 1);
       this.scriptProcessor.onaudioprocess = (e) => {
         const inputData = e.inputBuffer.getChannelData(0);
 
@@ -270,7 +274,18 @@ export class AudioManager {
       }
 
       const currentTime = ctx.currentTime;
-      const startTime = Math.max(currentTime, this.nextPlayTime);
+      // Prime the first Live chunk slightly ahead of the clock. Gemini streams
+      // multiple PCM chunks independently, so a small jitter buffer absorbs
+      // network/WebView scheduling jitter instead of producing audible gaps.
+      let startTime = Math.max(currentTime, this.nextPlayTime);
+      if (!this.streamPrimed && this.activeSources.length === 0) {
+        startTime = Math.max(startTime, currentTime + this.STREAM_START_BUFFER_SECONDS);
+        this.streamPrimed = true;
+      } else if (startTime < currentTime + 0.01) {
+        // If a chunk arrives late, start it almost immediately rather than
+        // leaving a larger silent hole in the stream.
+        startTime = currentTime + 0.01;
+      }
       source.start(startTime);
       this.nextPlayTime = startTime + buffer.duration;
 
@@ -288,6 +303,7 @@ export class AudioManager {
         }
         if (this.activeSources.length === 0) {
           this.nextPlayTime = ctx.currentTime;
+          this.streamPrimed = false;
           this.outputLevel = 0;
           if (onEnd) {
             onEnd();
@@ -354,6 +370,7 @@ export class AudioManager {
               }
               if (this.activeSources.length === 0) {
                 this.nextPlayTime = ctx.currentTime;
+                this.streamPrimed = false;
                 this.outputLevel = 0;
                 if (onEnd) {
                   onEnd();
@@ -402,6 +419,8 @@ export class AudioManager {
       }
     }
     this.activeSources = [];
+    this.pendingStartupAudio = null;
+    this.streamPrimed = false;
 
     if (this.outputAudioCtx) {
       this.nextPlayTime = this.outputAudioCtx.currentTime;
