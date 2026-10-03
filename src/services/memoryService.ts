@@ -265,12 +265,26 @@ export class MemoryService {
         relevant = [...projectMemories, ...techMemories].slice(0, maxItems);
       }
 
-      // 2. Detect preference or profile inquiries (e.g. "what voice do I use", "what are my preferences")
+      // 2. Detect identity/profile inquiries. These must use the personal-memory
+      // bucket instead of keyword scoring because words like "who", "am", "I",
+      // and "name" are commonly stop words and would otherwise score 0.
+      if (
+        relevant.length === 0 &&
+        /^(who\s+am\s+i|what(?:'s|\s+is)\s+my\s+name|do\s+you\s+know\s+my\s+name|what\s+do\s+you\s+know\s+about\s+me)/i.test(lower.trim())
+      ) {
+        relevant = await this.getMemories({ category: "personal", activeOnly: true });
+        if (relevant.length === 0) {
+          relevant = (await this.getMemories({ activeOnly: true })).slice(0, maxItems);
+        }
+        relevant = relevant.slice(0, maxItems);
+      }
+
+      // 3. Detect preference or profile inquiries (e.g. "what voice do I use", "what are my preferences")
       if (relevant.length === 0 && (lower.includes("voice") || lower.includes("preference") || lower.includes("setting") || lower.includes("how do i like"))) {
         relevant = await this.getMemories({ category: "preference" });
       }
 
-      // 3. Fallback to keyword relevance search
+      // 4. Fallback to keyword relevance search
       if (relevant.length === 0) {
         relevant = await this.searchMemories(query, maxItems);
       }
@@ -320,6 +334,20 @@ export class MemoryService {
       }
     }
     if (/^(?:kya\s+yaad\s+hai|meri\s+memory|memory\s+dikha|yaadein\s+dikha)/i.test(lower)) return { type: "query" };
+
+    // Natural identity statements should become persistent personal memories too.
+    // Example: "I'm Void" -> "The user's name is Void".
+    const identityMatch = text.match(
+      /^(?:i['’]?m|i\s+am|my\s+name\s+is|call\s+me)\s+([A-Za-z][A-Za-z0-9_ -]{1,40})[.!?]?$/i
+    );
+    if (identityMatch) {
+      const name = identityMatch[1].trim().replace(/[.!?]+$/, "");
+      return {
+        type: "save",
+        content: "The user's name is " + name,
+        category: "personal",
+      };
+    }
     if (/^(?:sab\s+bhool|meri\s+saari\s+memory\s+(?:delete|clear)|memory\s+clear)/i.test(lower)) return { type: "clear" };
     if (/^(?:ye\s+bhool|isko\s+bhool|bhool\s+jao|forget\s+this)\b/i.test(lower)) {
       const target = text.replace(/^(?:ye\s+bhool|isko\s+bhool|bhool\s+jao|forget\s+this)\s*/i, "").trim();
