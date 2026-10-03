@@ -1,0 +1,8 @@
+{
+  "name": "JARVIS - Personal Assistant",
+  "description": "JARVIS is a sophisticated personal AI assistant powered by Gemini Live voice and text interaction.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
