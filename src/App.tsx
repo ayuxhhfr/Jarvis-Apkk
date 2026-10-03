@@ -156,9 +156,7 @@ export default function App() {
           )}
 
           {/* Main Interactive Stage */}
-          <main className={`relative flex-1 flex flex-col items-center min-h-0 w-full max-w-7xl mx-auto px-4 transition-all duration-300 ${
-            messages.length > 0 ? "justify-between" : "justify-center"
-          }`}>
+          <main className="relative flex-1 flex flex-col items-center justify-center min-h-0 w-full max-w-7xl mx-auto px-4">
             {/* Left Information Area (Desktop only) */}
             <aside className="hidden lg:flex absolute left-8 top-12 flex-col gap-5 select-none pointer-events-none font-mono">
               <div className="space-y-1">
@@ -187,13 +185,7 @@ export default function App() {
             </aside>
 
             {/* Center: Digital Earth Globe + Primary Voice Button */}
-            <div className={`relative flex flex-col items-center justify-center w-full transition-all duration-300 ${
-              messages.length > 0
-                ? isChatExpanded
-                  ? "my-1 sm:my-2"
-                  : "my-2 sm:my-4"
-                : "my-4 sm:my-8"
-            }`}>
+            <div className="relative flex flex-col items-center justify-center w-full transition-all duration-500 ease-out">
               {/* Globe Container */}
               <div className={`relative transition-all duration-300 flex items-center justify-center ${
                 messages.length > 0
@@ -259,17 +251,17 @@ export default function App() {
 
             {/* Live Conversation / Transcript Stream (Responsive Drawer) */}
             <div
-              className={`w-full max-w-2xl transition-all duration-300 flex flex-col z-20 min-h-0 ${
+              className={`absolute left-0 right-0 bottom-1 sm:bottom-2 w-full max-w-2xl mx-auto transition-all duration-300 flex flex-col z-20 min-h-0 ${
                 messages.length > 0
                   ? isChatExpanded
-                    ? "flex-1 lg:h-64 min-h-[160px] lg:min-h-0 mt-1 mb-2 sm:my-2"
-                    : "h-32 sm:h-40 mt-1 mb-1 sm:my-2"
-                  : "h-0 mt-0 opacity-0 pointer-events-none"
+                    ? "h-[38%] min-h-[180px]"
+                    : "h-32 sm:h-40"
+                  : "h-0 opacity-0 pointer-events-none"
               }`}
             >
               {messages.length > 0 && (
                 <div className="flex items-center justify-between px-3 py-1.5 text-[10px] font-mono text-neutral-500 border-b border-white/[0.04] bg-[#0c0e11]/60 rounded-t-xl">
-                  <span>CONVERSATION ({messages.length})</span>
+                  <span>CHAT HISTORY ({messages.length})</span>
                   <button
                     onClick={() => setIsChatExpanded(!isChatExpanded)}
                     className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer"
@@ -296,7 +288,7 @@ export default function App() {
           </main>
 
           {/* Bottom Text Input Bar */}
-          <footer className="w-full z-30 pt-2 pb-[max(env(safe-area-inset-bottom),0.5rem)]">
+          <footer className="jarvis-safe-bottom w-full z-30 pt-2 pb-[max(env(safe-area-inset-bottom),0.5rem)]">
             <InputBar
               onSendMessage={sendTextMessage}
               onToggleMic={toggleListening}
