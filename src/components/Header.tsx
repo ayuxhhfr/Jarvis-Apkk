@@ -66,7 +66,7 @@ export const Header: React.FC<HeaderProps> = ({
   const statusInfo = getStatusDisplay();
 
   return (
-    <header className="w-full flex items-center justify-between px-4 py-2.5 sm:px-6 sm:py-3.5 border-b border-white/[0.05] bg-[#08090a]/80 backdrop-blur-md z-30 select-none">
+    <header className="jarvis-safe-top w-full flex items-center justify-between px-4 py-2.5 sm:px-6 sm:py-3.5 border-b border-white/[0.05] bg-[#08090a]/80 backdrop-blur-md z-30 select-none">
       {/* Top Left: JARVIS / Ira Brand */}
       <div className="flex flex-col">
         <div className="flex items-center gap-2">
