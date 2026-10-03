@@ -24,6 +24,7 @@ export class GeminiLiveService {
   private isConnected = false;
   private lastConfig: LiveSessionConfig | null = null;
   private setupReady = false;
+  private handshakeTimer: number | null = null;
 
   private onConnectCallbacks: Array<() => void> = [];
   private onDisconnectCallbacks: Array<() => void> = [];
@@ -82,6 +83,21 @@ export class GeminiLiveService {
           "?key=" + encodeURIComponent(apiKey);
 
         this.ws = new WebSocket(wsUrl);
+        // Fail fast on Android: a TCP/TLS WebSocket can open without the
+        // Gemini Live session actually completing its setup handshake.
+        this.handshakeTimer = window.setTimeout(() => {
+          if (!this.setupReady && this.isConnecting) {
+            const state = this.ws?.readyState;
+            console.error("[GeminiLive Android] setupComplete not received within 5s", {
+              readyState: state,
+              model: androidModel,
+            });
+            this.emitError(
+              "Gemini Live handshake timed out after 5s. WebSocket opened, but Google did not return setupComplete."
+            );
+            try { this.ws?.close(1000, "Live setup handshake timeout"); } catch {}
+          }
+        }, 5000);
       } else {
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
         const host = window.location.host;
@@ -89,6 +105,7 @@ export class GeminiLiveService {
       }
 
       this.ws.onopen = () => {
+        console.log("[GeminiLive] WebSocket opened", { android: isAndroidApp() });
         const activeConfig = customConfig || this.lastConfig;
         const model = activeConfig?.model || LIVE_MODEL;
         const voice = activeConfig?.voice || VOICE;
@@ -121,6 +138,7 @@ export class GeminiLiveService {
             };
           }
 
+          console.log("[GeminiLive Android] Sending Live setup", { model: setup.model, voice });
           this.ws?.send(JSON.stringify({ setup }));
         } else {
           this.ws?.send(
@@ -136,9 +154,15 @@ export class GeminiLiveService {
         }
       };
 
-      this.ws.onmessage = (event) => {
+      this.ws.onmessage = async (event) => {
         try {
-          const msg = JSON.parse(event.data);
+          // Android WebView normally delivers text frames as strings, but
+          // tolerate Blob/ArrayBuffer frames so a valid setupComplete cannot
+          // be silently lost on a device-specific WebView implementation.
+          let raw = event.data;
+          if (raw instanceof Blob) raw = await raw.text();
+          if (raw instanceof ArrayBuffer) raw = new TextDecoder().decode(raw);
+          const msg = JSON.parse(String(raw));
 
           // Android: Google's raw Live API protocol.
           if (isAndroidApp()) {
@@ -261,6 +285,11 @@ export class GeminiLiveService {
     }
 
     if (msg.setupComplete) {
+      if (this.handshakeTimer !== null) {
+        window.clearTimeout(this.handshakeTimer);
+        this.handshakeTimer = null;
+      }
+      console.log("[GeminiLive Android] setupComplete received");
       this.setupReady = true;
       this.isConnected = true;
       this.isConnecting = false;
@@ -421,6 +450,10 @@ export class GeminiLiveService {
     this.isConnected = false;
     this.isConnecting = false;
     this.setupReady = false;
+    if (this.handshakeTimer !== null) {
+      window.clearTimeout(this.handshakeTimer);
+      this.handshakeTimer = null;
+    }
   }
 
   private emitError(message: string): void {
