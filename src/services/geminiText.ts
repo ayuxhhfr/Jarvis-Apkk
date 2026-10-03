@@ -5,6 +5,7 @@
 
 import { CHAT_MODEL, LIVE_MODEL, VOICE } from "../config/jarvisConfig";
 import { isAndroidApp, getAndroidApiKey } from "./androidRuntime";
+import { MEMORY_MODEL } from "../config/modelConfig";
 
 export interface ChatRequestOptions {
   message: string;
@@ -194,7 +195,7 @@ If nothing durable exists, return {"shouldRemember":false,"memories":[],"reason"
       const res = await fetch("/api/gemini/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: prompt, systemInstruction: system, model: CHAT_MODEL, history: [] }),
+        body: JSON.stringify({ message: prompt, systemInstruction: system, model: MEMORY_MODEL, history: [] }),
       });
       if (!res.ok) throw new Error(`Memory classifier HTTP ${res.status}`);
       const raw = await res.text();
@@ -211,7 +212,7 @@ If nothing durable exists, return {"shouldRemember":false,"memories":[],"reason"
         const key = getAndroidApiKey().trim();
         if (!key) return { shouldRemember: false, memories: [], reason: "no Android Gemini key" };
         const res = await fetch(
-          "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(CHAT_MODEL) + ":generateContent?key=" + encodeURIComponent(key),
+          "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(MEMORY_MODEL) + ":generateContent?key=" + encodeURIComponent(key),
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
