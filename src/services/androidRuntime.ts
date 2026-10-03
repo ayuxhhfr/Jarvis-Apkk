@@ -29,13 +29,85 @@ export function setAndroidApiKey(key: string): void {
 export async function validateAndroidApiKey(key: string): Promise<void> {
   const value = key.trim();
   if (!value) throw new Error("Gemini API key is required.");
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${CHAT_MODEL}:generateContent`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-goog-api-key": value },
-    body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: "Reply with exactly OK." }] }], generationConfig: { maxOutputTokens: 8 } }),
+
+  // Validate the exact runtime path the APK actually uses:
+  // Gemini Live WebSocket + the configured 3.1 Live Preview model.
+  // A normal REST generateContent check is not enough to prove Live access.
+  await new Promise<void>((resolve, reject) => {
+    const model = "gemini-3.1-flash-live-preview";
+    const url =
+      "wss://generativelanguage.googleapis.com/ws/" +
+      "google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent" +
+      "?key=" + encodeURIComponent(value);
+
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      try { socket.close(); } catch {}
+      error ? reject(error) : resolve();
+    };
+
+    const timer = window.setTimeout(() => {
+      finish(new Error("Gemini Live model check timed out after 5s."));
+    }, 5000);
+
+    const socket = new WebSocket(url);
+
+    socket.onopen = () => {
+      socket.send(JSON.stringify({
+        setup: {
+          model: `models/${model}`,
+          generationConfig: { responseModalities: ["AUDIO"] },
+          sessionResumption: {},
+        },
+      }));
+    };
+
+    socket.onmessage = async (event) => {
+      try {
+        let raw = event.data;
+        if (raw instanceof Blob) raw = await raw.text();
+        if (raw instanceof ArrayBuffer) raw = new TextDecoder().decode(raw);
+        const msg = JSON.parse(String(raw));
+
+        if (msg.setupComplete) {
+          finish();
+          return;
+        }
+
+        if (msg.error) {
+          const error = msg.error;
+          finish(new Error(
+            typeof error === "string"
+              ? error
+              : error?.message || error?.status || JSON.stringify(error)
+          ));
+        }
+      } catch {
+        finish(new Error("Gemini Live returned an invalid setup response."));
+      }
+    };
+
+    socket.onerror = () => {
+      finish(new Error("Could not connect to Gemini Live for model verification."));
+    };
+
+    socket.onclose = (event) => {
+      if (!settled) {
+        const detail = [event.code ? `code ${event.code}` : "", event.reason || ""]
+          .filter(Boolean)
+          .join(": ");
+        finish(new Error(
+          detail
+            ? `Gemini Live model check closed (${detail}).`
+            : "Gemini Live model check closed before setup completed."
+        ));
+      }
+    };
   });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.error?.message || `Gemini rejected the API key (${res.status}).`);
+
   setAndroidApiKey(value);
 }
 
