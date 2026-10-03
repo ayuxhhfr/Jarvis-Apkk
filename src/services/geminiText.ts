@@ -166,13 +166,13 @@ Rewrite saved content as a concise third-person fact about the user. Never inven
       });
       if (!res.ok) throw new Error(`Memory classifier HTTP ${res.status}`);
       const raw = await res.text();
-      const text = raw.split("\\n").filter(Boolean).map((line) => {
+      const text = raw.split("\n").filter(Boolean).map((line) => {
         if (!line.startsWith("data: ")) return "";
         const data = line.slice(6).trim();
         if (data === "[DONE]") return "";
         try { return JSON.parse(data).text || ""; } catch { return ""; }
       }).join("").trim();
-      const cleaned = text.replace(/^\\s*\`\`\`(?:json)?/i, "").replace(/\`\`\`\\s*$/i, "").trim();
+      const cleaned = text.replace(/^\s*\`\`\`(?:json)?/i, "").replace(/\`\`\`\s*$/i, "").trim();
       const parsed = JSON.parse(cleaned);
       return parsed;
     } catch (serverErr) {
