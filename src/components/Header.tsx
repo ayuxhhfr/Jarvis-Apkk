@@ -3,7 +3,7 @@
  * Displays branding, compact connection status, memory access and controls.
  */
 import React from "react";
-import { SlidersHorizontal, Globe, Monitor, X, Loader2, ExternalLink, Brain } from "lucide-react";
+import { SlidersHorizontal, Globe, Monitor, X, Loader2, ExternalLink, Brain, MessageSquare } from "lucide-react";
 import { ConnectionStatus } from "../types/assistant";
 import { ScreenShareStatus } from "../types/screenShare";
 
@@ -16,6 +16,7 @@ interface HeaderProps {
   onOpenInNewTab?: () => void;
   onOpenSettings: () => void;
   onOpenBrowser?: () => void;
+  onOpenChats?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -62,6 +63,8 @@ export const Header: React.FC<HeaderProps> = ({
         <div className={`flex items-center justify-center sm:gap-2 p-1.5 sm:px-2.5 sm:py-1 rounded-full bg-white/[0.03] border border-white/[0.06] text-[10px] sm:text-xs font-mono shrink-0`} title={`Connection Status: ${statusInfo.label}`}>
           <span className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${statusInfo.dot}`} /><span className={`hidden sm:inline ${statusInfo.text}`}>{statusInfo.label}</span>
         </div>
+
+        {onOpenChats && <button onClick={onOpenChats} className="p-2 rounded-lg text-neutral-400 hover:text-[#00ffaa] hover:bg-white/[0.06] active:scale-95 transition-all border border-transparent hover:border-white/[0.08] cursor-pointer" title="Conversations" aria-label="Conversations"><MessageSquare className="w-4 h-4" /></button>}
 
         {/* Memory is a real control, not a decorative glow. */}
         <button onClick={onOpenSettings} className="p-2 rounded-lg text-neutral-400 hover:text-[#00ffaa] hover:bg-white/[0.06] active:scale-95 transition-all border border-transparent hover:border-white/[0.08] cursor-pointer" title="Memory & Settings" aria-label="Memory & Settings"><Brain className="w-4 h-4" /></button>
