@@ -284,7 +284,7 @@ export default function App() {
                 messages.length > 0
                   ? isChatExpanded
                     ? "h-[38%] min-h-[180px]"
-                    : "h-32 sm:h-40"
+                    : "h-40 sm:h-48"
                   : "h-0 opacity-0 pointer-events-none"
               }`}
             >
