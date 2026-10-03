@@ -1,4 +1,4 @@
-/**
+/** 
  * Audio Manager service for JARVIS.
  * Handles microphone capture (16kHz PCM), output playback (24kHz PCM),
  * audio visualization amplitude analysis, gapless streaming playback,
@@ -25,7 +25,12 @@ export class AudioManager {
   private activeSources: AudioBufferSourceNode[] = [];
   private nextPlayTime: number = 0;
   private streamPrimed: boolean = false;
-  private readonly STREAM_START_BUFFER_SECONDS = 0.12;
+
+  // Keep startup jitter low. Gemini Live is a streaming API; a large client
+  // buffer makes JARVIS feel slow, while no buffer causes gaps on mobile WebViews.
+  // 60ms is a small compromise for smooth startup without the old 120ms delay.
+  private readonly STREAM_START_BUFFER_SECONDS = 0.06;
+
   private isAssistantSpeaking: boolean = false;
 
   private onAudioChunk: AudioChunkCallback | null = null;
@@ -47,23 +52,14 @@ export class AudioManager {
     this.startLevelLoop();
   }
 
-  /**
-   * Set callback for microphone PCM chunks (16kHz base64).
-   */
   public setOnAudioChunk(callback: AudioChunkCallback) {
     this.onAudioChunk = callback;
   }
 
-  /**
-   * Set callback for when user speech interrupts JARVIS.
-   */
   public setOnInterrupt(callback: InterruptCallback) {
     this.onInterrupt = callback;
   }
 
-  /**
-   * Update speaking status so the audio manager knows whether to trigger interruptions.
-   */
   public setAssistantSpeaking(speaking: boolean) {
     this.isAssistantSpeaking = speaking;
     if (!speaking) {
@@ -71,9 +67,6 @@ export class AudioManager {
     }
   }
 
-  /**
-   * Start microphone capture.
-   */
   public async startMicrophone(): Promise<void> {
     if (this.mediaStream) {
       return;
@@ -83,7 +76,7 @@ export class AudioManager {
       const AudioCtxClass =
         window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      this.inputAudioCtx = new AudioCtxClass({ sampleRate: 16000 });
+      this.inputAudioCtx = new AudioCtxClass({ sampleRate: 16000, latencyHint: "interactive" });
       if (this.inputAudioCtx.state === "suspended") {
         await this.inputAudioCtx.resume();
       }
@@ -100,20 +93,17 @@ export class AudioManager {
 
       const source = this.inputAudioCtx.createMediaStreamSource(this.mediaStream);
 
-      // Setup Analyser for visualization
       this.micAnalyser = this.inputAudioCtx.createAnalyser();
       this.micAnalyser.fftSize = 256;
       this.micAnalyser.smoothingTimeConstant = 0.4;
       source.connect(this.micAnalyser);
 
-      // ScriptProcessor for 16kHz PCM chunks
-      // 512 samples at 16kHz = 32ms. Small chunks keep Live voice responsive
-      // and avoid the 256ms input buffering caused by the old 4096-sample block.
+      // 512 samples at 16kHz = 32ms, inside Gemini Live's recommended
+      // 20–40ms realtime input chunk range.
       this.scriptProcessor = this.inputAudioCtx.createScriptProcessor(512, 1, 1);
       this.scriptProcessor.onaudioprocess = (e) => {
         const inputData = e.inputBuffer.getChannelData(0);
 
-        // Calculate RMS amplitude for interruption detection and visuals
         let sumSquares = 0;
         for (let i = 0; i < inputData.length; i++) {
           sumSquares += inputData[i] * inputData[i];
@@ -121,7 +111,6 @@ export class AudioManager {
         const rms = Math.sqrt(sumSquares / inputData.length);
         this.micLevel = Math.min(1, rms * 5);
 
-        // Interruption detection: user speaks while JARVIS is speaking
         if (this.isAssistantSpeaking && rms > this.speechThreshold) {
           this.consecutiveSpeechFrames++;
           if (this.consecutiveSpeechFrames >= 2) {
@@ -135,7 +124,6 @@ export class AudioManager {
           this.consecutiveSpeechFrames = 0;
         }
 
-        // Convert Float32 to 16-bit PCM
         const pcm16 = new Int16Array(inputData.length);
         for (let i = 0; i < inputData.length; i++) {
           const s = Math.max(-1, Math.min(1, inputData[i]));
@@ -156,9 +144,6 @@ export class AudioManager {
     }
   }
 
-  /**
-   * Stop microphone capture.
-   */
   public stopMicrophone(): void {
     if (this.scriptProcessor) {
       try {
@@ -187,15 +172,18 @@ export class AudioManager {
     this.micLevel = 0;
   }
 
-  /**
-   * Ensure output audio context is initialized (24kHz standard for Gemini Live / TTS output).
-   */
   private ensureOutputContext(): AudioContext {
     if (!this.outputAudioCtx || this.outputAudioCtx.state === "closed") {
       const AudioCtxClass =
         window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      this.outputAudioCtx = new AudioCtxClass({ sampleRate: 24000 });
+
+      // Explicitly request interactive latency for voice instead of the
+      // higher-latency playback profile.
+      this.outputAudioCtx = new AudioCtxClass({
+        sampleRate: 24000,
+        latencyHint: "interactive",
+      });
 
       this.masterGain = this.outputAudioCtx.createGain();
       this.masterGain.gain.setValueAtTime(1.0, this.outputAudioCtx.currentTime);
@@ -215,10 +203,6 @@ export class AudioManager {
     return this.outputAudioCtx;
   }
 
-  /**
-   * Play an incoming base64 PCM audio chunk.
-   * Uses robust little-endian conversion, zero-click buffer scheduling, and clean teardown.
-   */
   public playAudioChunk(base64Data: string, onEnd?: () => void): void {
     if (!base64Data || typeof base64Data !== "string") {
       if (onEnd) onEnd();
@@ -228,7 +212,6 @@ export class AudioManager {
     try {
       const ctx = this.ensureOutputContext();
 
-      // If browser suspended audio context due to lack of user gesture, queue for first user interaction
       if (ctx.state === "suspended") {
         ctx.resume().catch(() => {});
         if (ctx.state === "suspended") {
@@ -258,7 +241,6 @@ export class AudioManager {
         return;
       }
 
-      // 24000Hz PCM standard
       const buffer = ctx.createBuffer(1, float32.length, 24000);
       buffer.getChannelData(0).set(float32);
 
@@ -274,21 +256,18 @@ export class AudioManager {
       }
 
       const currentTime = ctx.currentTime;
-      // Prime the first Live chunk slightly ahead of the clock. Gemini streams
-      // multiple PCM chunks independently, so a small jitter buffer absorbs
-      // network/WebView scheduling jitter instead of producing audible gaps.
       let startTime = Math.max(currentTime, this.nextPlayTime);
+
       if (!this.streamPrimed && this.activeSources.length === 0) {
         startTime = Math.max(startTime, currentTime + this.STREAM_START_BUFFER_SECONDS);
         this.streamPrimed = true;
-      } else if (startTime < currentTime + 0.01) {
-        // If a chunk arrives late, start it almost immediately rather than
-        // leaving a larger silent hole in the stream.
-        startTime = currentTime + 0.01;
+      } else if (startTime < currentTime + 0.008) {
+        // Never intentionally add a large hole when a network chunk arrives late.
+        startTime = currentTime + 0.008;
       }
+
       source.start(startTime);
       this.nextPlayTime = startTime + buffer.duration;
-
       this.activeSources.push(source);
 
       source.onended = () => {
@@ -297,10 +276,12 @@ export class AudioManager {
         } catch {
           // ignore
         }
+
         const index = this.activeSources.indexOf(source);
         if (index > -1) {
           this.activeSources.splice(index, 1);
         }
+
         if (this.activeSources.length === 0) {
           this.nextPlayTime = ctx.currentTime;
           this.streamPrimed = false;
@@ -316,10 +297,6 @@ export class AudioManager {
     }
   }
 
-  /**
-   * Play an encoded compressed audio chunk (like AAC/MP3/WAV from TTS) using native browser decodeAudioData.
-   * Prevents clicks, pop, and broken-TV buzzing/static at the end of speech.
-   */
   public async playEncodedAudio(base64Data: string, onEnd?: () => void): Promise<void> {
     if (!base64Data || typeof base64Data !== "string") {
       if (onEnd) onEnd();
@@ -335,7 +312,6 @@ export class AudioManager {
         bytes[i] = binary.charCodeAt(i);
       }
 
-      // Decode asynchronously using the browser's native decoder
       ctx.decodeAudioData(
         bytes.buffer,
         (buffer) => {
@@ -384,7 +360,6 @@ export class AudioManager {
         },
         (decodeErr) => {
           console.error("Failed to decode audio data, falling back to raw PCM:", decodeErr);
-          // Fallback to raw PCM if decoding failed (e.g. if it wasn't actually encoded)
           this.playAudioChunk(base64Data, onEnd);
         }
       );
@@ -394,13 +369,9 @@ export class AudioManager {
     }
   }
 
-  /**
-   * Instantly and cleanly stops all current speech playback without static/clicks.
-   */
   public stopPlayback(): void {
     if (this.masterGain && this.outputAudioCtx && this.outputAudioCtx.state === "running") {
       try {
-        // Fast 10ms micro-fade to eliminate clicks/static
         const now = this.outputAudioCtx.currentTime;
         this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, now);
         this.masterGain.gain.linearRampToValueAtTime(0, now + 0.01);
@@ -418,13 +389,13 @@ export class AudioManager {
         // ignore already stopped sources
       }
     }
+
     this.activeSources = [];
     this.pendingStartupAudio = null;
     this.streamPrimed = false;
 
     if (this.outputAudioCtx) {
       this.nextPlayTime = this.outputAudioCtx.currentTime;
-      // Reset gain back to 1.0 for future playback
       if (this.masterGain) {
         try {
           const now = this.outputAudioCtx.currentTime;
@@ -441,16 +412,10 @@ export class AudioManager {
     this.isAssistantSpeaking = false;
   }
 
-  /**
-   * Check if audio playback is currently active.
-   */
   public isPlaying(): boolean {
     return this.activeSources.length > 0;
   }
 
-  /**
-   * Read real-time audio visualization levels (0.0 to 1.0).
-   */
   public getLevels(): AudioVisualizerLevels {
     return {
       micLevel: this.micLevel,
@@ -499,8 +464,6 @@ export class AudioManager {
     }
   }
 
-  // --- Utility conversions ---
-
   private pcm16ToBase64(pcm16: Int16Array): string {
     const uint8 = new Uint8Array(pcm16.buffer, pcm16.byteOffset, pcm16.byteLength);
     let binary = "";
@@ -511,10 +474,6 @@ export class AudioManager {
     return btoa(binary);
   }
 
-  /**
-   * Robust little-endian decoding of Base64 to Float32Array PCM.
-   * Completely immune to odd-byte counts, alignment errors, and buffer corruption.
-   */
   private base64ToFloat32Pcm(base64: string): Float32Array {
     const binary = atob(base64);
     const numSamples = Math.floor(binary.length / 2);
