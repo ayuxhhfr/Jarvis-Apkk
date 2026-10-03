@@ -19,6 +19,7 @@ const __dirname = path.dirname(__filename);
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const LIVE_MODEL = "gemini-3.1-flash-live-preview";
 const TTS_MODEL = "gemini-3.8-flash-lite-tts";
+const MEMORY_MODEL = "gemini-2.5-flash-lite";
 const DEFAULT_VOICE = "Enceladus";
 
 const JARVIS_SYSTEM_INSTRUCTION = `You are JARVIS, a personal AI assistant.
@@ -631,6 +632,48 @@ async function startServer() {
       thinkingLevel: "minimal",
       status: apiKey ? "operational" : "missing_key",
     });
+  });
+
+  // REST API: Dedicated long-term-memory classifier.
+  // This is intentionally separate from normal chat so memory decisions use the
+  // lightweight model and never depend on the chat model/tool pipeline.
+  app.post("/api/gemini/memory-classify", async (req, res) => {
+    if (!apiKey) {
+      res.status(500).json({ error: "GEMINI_API_KEY is not configured" });
+      return;
+    }
+
+    const { message, systemInstruction } = req.body;
+    if (!message) {
+      res.status(400).json({ error: "Message is required" });
+      return;
+    }
+
+    try {
+      const response = await ai.models.generateContent({
+        model: MEMORY_MODEL,
+        contents: [{ role: "user", parts: [{ text: message }] }],
+        config: {
+          systemInstruction: systemInstruction || "Decide whether this user message contains durable information worth remembering. Return JSON only.",
+          responseMimeType: "application/json",
+          temperature: 0,
+        },
+      });
+
+      const raw = response.text || "";
+      let result: any;
+      try {
+        result = JSON.parse(raw);
+      } catch {
+        const cleaned = raw.replace(/^\s*```(?:json)?/i, "").replace(/```\s*$/i, "").trim();
+        result = JSON.parse(cleaned);
+      }
+
+      res.json(result);
+    } catch (err: any) {
+      console.error("Memory classification error:", err);
+      res.status(500).json({ error: err?.message || "Memory classification error" });
+    }
   });
 
   // REST API: Text Chat Endpoint (Streaming Server-Sent Events)
