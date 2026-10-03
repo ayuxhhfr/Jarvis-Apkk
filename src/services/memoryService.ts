@@ -303,6 +303,30 @@ export class MemoryService {
   }
 
   /**
+   * Build a compact persistent profile/context block for a fresh Live session.
+   * This is intentionally small so a new session starts with durable memory
+   * instead of relying on the previous Live session's hidden context.
+   */
+  public async getPersistentContext(maxItems: number = 8): Promise<string> {
+    try {
+      if (!this.isEnabled()) return "";
+      const memories = await this.getMemories({ activeOnly: true });
+      if (!memories.length) return "";
+
+      const sorted = [...memories].sort((a, b) => {
+        const importance = (b.importance || 3) - (a.importance || 3);
+        if (importance !== 0) return importance;
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      }).slice(0, maxItems);
+
+      const formatted = sorted.map((m) => `- ${m.content}`).join("\\n");
+      return `\\n\\n[PERSISTENT LONG-TERM MEMORY — SURVIVES NEW SESSIONS]:\\n${formatted}\\nTreat these as durable facts/preferences about the Boss. Use them naturally; do not mention the memory store unless asked.`;
+    } catch (err) {
+      console.warn("JARVIS MemoryService: Persistent context error:", err);
+      return "";
+    }
+  }
+  /**
    * Detect explicit natural language memory commands.
    * Handles:
    * - "Remember that I use TypeScript."
