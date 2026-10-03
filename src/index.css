@@ -24,7 +24,11 @@
   /* Android/Capacitor can draw the WebView edge-to-edge under the status bar.
      Keep the app content below the system status area without changing the UI layout. */
   .jarvis-safe-top {
-    padding-top: env(safe-area-inset-top, 0px);
+    padding-top: max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px));
+  }
+
+  .jarvis-safe-bottom {
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px));
   }
 }
 
