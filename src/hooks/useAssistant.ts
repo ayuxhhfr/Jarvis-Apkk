@@ -16,7 +16,6 @@ import { ASSISTANT_PROFILES, DEFAULT_PROFILE_ID } from "../config/assistantProfi
 import { useGeminiLive } from "./useGeminiLive";
 import { useVoice } from "./useVoice";
 import { geminiText } from "../services/geminiText";
-import { browserManager } from "../services/browserManager";
 import { parseBrowserIntent } from "../services/browserTools";
 import { memoryService } from "../services/memoryService";
 import { browserManager } from "../services/browserManager";
@@ -688,6 +687,7 @@ export function useAssistant() {
         settingsRef.current.assistantName,
         settingsRef.current.voice
       );
+      const browserContext = browserManager.getAssistantContext();
       sessionService.consumeReturnEvent();
 
       // Set state to thinking
@@ -699,7 +699,7 @@ export function useAssistant() {
         : null;
 
       // Construct combined contextual payload
-      const combinedContext = [temporalContext, memoryContext].filter(Boolean).join("\n");
+      const combinedContext = [temporalContext, browserContext, memoryContext].filter(Boolean).join("\n");
       const contextualLiveText = combinedContext
         ? `${trimmed}\n\n${combinedContext}`
         : trimmed;
