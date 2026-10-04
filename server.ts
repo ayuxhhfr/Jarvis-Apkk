@@ -717,20 +717,20 @@ async function startServer() {
 
       for await (const chunk of streamResponse) {
         if (chunk.text) {
-          res.write(`data: ${JSON.stringify({ text: chunk.text })}\\n\\n`);
+          res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
         }
         const functionCalls = chunk.functionCalls;
         if (functionCalls?.length) {
           for (const call of functionCalls) {
-            res.write(`data: ${JSON.stringify({ toolCall: { id: call.id, name: call.name, args: call.args || {} } })}\\n\\n`);
+            res.write(`data: ${JSON.stringify({ toolCall: { id: call.id, name: call.name, args: call.args || {} } })}\n\n`);
           }
         }
       }
-      res.write("data: [DONE]\\n\\n");
+      res.write("data: [DONE]\n\n");
       res.end();
     } catch (err: any) {
       console.error("Manager generation error:", err);
-      res.write(`data: ${JSON.stringify({ error: err?.message || "Manager generation error" })}\\n\\n`);
+      res.write(`data: ${JSON.stringify({ error: err?.message || "Manager generation error" })}\n\n`);
       res.end();
     }
   });
