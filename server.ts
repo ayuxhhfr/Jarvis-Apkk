@@ -423,7 +423,11 @@ async function startServer() {
                 clientWs.send(
                   JSON.stringify({
                     userTranscript: inText,
-                    finished: message.serverContent?.inputTranscription?.finished ?? true,
+                    // Never treat the mere presence of transcript text as a
+                    // completed utterance. Gemini Live sends transcript
+                    // fragments; completion is finalized by an explicit
+                    // finished flag or the subsequent turnComplete/model turn.
+                    finished: message.serverContent?.inputTranscription?.finished === true,
                   })
                 );
               }
