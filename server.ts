@@ -355,12 +355,15 @@ async function startServer() {
 
     let liveSession: any = null;
     let isSessionOpen = false;
+    let voiceOnly = true;
+    let voiceOutputActive = false;
 
     const initLiveSession = async (config: {
       model?: string;
       voice?: string;
       systemInstruction?: string;
       greeting?: string;
+      voiceOnly?: boolean;
     }) => {
       if (liveSession) {
         try {
@@ -375,6 +378,8 @@ async function startServer() {
       const modelName = config.model || LIVE_MODEL;
       const voiceName = getValidLiveVoice(config.voice || DEFAULT_VOICE);
       const systemInstruction = config.systemInstruction || JARVIS_SYSTEM_INSTRUCTION;
+      voiceOnly = config.voiceOnly !== false;
+      voiceOutputActive = false;
 
       try {
         liveSession = await ai.live.connect({
@@ -393,30 +398,29 @@ async function startServer() {
               thinkingLevel: ThinkingLevel.MINIMAL,
             },
             systemInstruction: systemInstruction,
-            // @ts-ignore
-            tools: [{ functionDeclarations: ALL_FUNCTION_DECLARATIONS }],
+            // 3.1 Live is a voice I/O engine in the new architecture.
+            // Its independent tool/reasoning path is disabled so 3.8 remains authoritative.
+            ...(voiceOnly ? {} : {
+              // @ts-ignore
+              tools: [{ functionDeclarations: ALL_FUNCTION_DECLARATIONS }],
+            }),
           },
           callbacks: {
             onmessage: (message: LiveServerMessage) => {
               if (clientWs.readyState !== WebSocket.OPEN) return;
 
               const parts = message.serverContent?.modelTurn?.parts;
-              if (parts && parts.length > 0) {
+              if (parts && parts.length > 0 && voiceOutputActive) {
                 for (const part of parts) {
-                  if (part.inlineData?.data) {
-                    clientWs.send(JSON.stringify({ audio: part.inlineData.data }));
-                  }
-                  if (part.text) {
-                    clientWs.send(JSON.stringify({ text: part.text }));
-                  }
+                  if (part.inlineData?.data) clientWs.send(JSON.stringify({ audio: part.inlineData.data }));
+                  if (part.text) clientWs.send(JSON.stringify({ text: part.text }));
                 }
               }
 
-              // Output audio transcription
+              // Output transcription is only exposed for the manager answer that
+              // was explicitly requested through the speak channel.
               const outText = message.serverContent?.outputTranscription?.text;
-              if (outText) {
-                clientWs.send(JSON.stringify({ text: outText }));
-              }
+              if (outText && voiceOutputActive) clientWs.send(JSON.stringify({ text: outText }));
 
               // Input audio transcription
               const inText = message.serverContent?.inputTranscription?.text;
@@ -433,9 +437,9 @@ async function startServer() {
                 );
               }
 
-              // Handle Gemini Live tool calls
+              // Handle Gemini Live tool calls only in legacy non-voice-only sessions.
               const toolCall = (message as any).toolCall;
-              if (toolCall?.functionCalls && toolCall.functionCalls.length > 0) {
+              if (!voiceOnly && toolCall?.functionCalls && toolCall.functionCalls.length > 0) {
                 for (const call of toolCall.functionCalls) {
                   clientWs.send(
                     JSON.stringify({
@@ -454,7 +458,10 @@ async function startServer() {
               }
 
               if (message.serverContent?.turnComplete) {
-                clientWs.send(JSON.stringify({ turnComplete: true }));
+                if (voiceOutputActive) {
+                  voiceOutputActive = false;
+                  clientWs.send(JSON.stringify({ turnComplete: true }));
+                }
               }
             },
             onerror: (err: any) => {
@@ -561,15 +568,24 @@ async function startServer() {
           }
         }
 
-        // Text query sent through Live session
-        if (payload.type === "text" && payload.text && isSessionOpen && liveSession) {
+        // 3.8 Manager -> 3.1 Live voice handoff. The Live model receives
+        // only the already-decided final answer and speaks it aloud.
+        if (payload.type === "speak" && payload.text && isSessionOpen && liveSession) {
+          voiceOutputActive = true;
           liveSession.sendClientContent({
-            turns: [
-              {
-                role: "user",
-                parts: [{ text: payload.text }],
-              },
-            ],
+            turns: [{
+              role: "user",
+              parts: [{ text: `[VOICE OUTPUT ONLY] Speak the following final JARVIS manager response exactly as written. Do not add, remove, reinterpret, answer, or call any tool. Response: ${payload.text}` }],
+            }],
+            turnComplete: true,
+          });
+        }
+
+        // Legacy text channel is retained for compatibility, but voice-only
+        // sessions never use it as the conversational brain.
+        if (payload.type === "text" && payload.text && isSessionOpen && liveSession && !voiceOnly) {
+          liveSession.sendClientContent({
+            turns: [{ role: "user", parts: [{ text: payload.text }] }],
             turnComplete: true,
           });
         }
