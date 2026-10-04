@@ -423,7 +423,7 @@ export class GeminiLiveService {
       return;
     }
 
-    if (msg.toolCall?.functionCalls) {
+    if (!this.voiceOnly && msg.toolCall?.functionCalls) {
       for (const call of msg.toolCall.functionCalls) {
         this.onToolCallCallbacks.forEach((cb) =>
           cb({
