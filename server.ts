@@ -592,6 +592,7 @@ async function startServer() {
 
         // Interruption signal: stop model turn
         if (payload.type === "interrupt" && isSessionOpen && liveSession) {
+          voiceOutputActive = false;
           // Interruption is communicated to live session
           try {
             if (typeof liveSession.sendRealtimeInput === "function") {
