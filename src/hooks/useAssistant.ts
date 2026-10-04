@@ -31,9 +31,31 @@ export function useAssistant() {
     try {
       if (memoryService.parseMemoryIntent(text)) return;
       const decision = await geminiText.classifyMemoryCandidate(text);
-      if (!decision.shouldRemember || !decision.memories?.length) return;
+      let memories = decision.shouldRemember ? (decision.memories || []) : [];
+
+      // Safety net for explicit self-identification. Gemini remains the primary
+      // classifier, but a clear "I'm X / I am X / my name is X" must never be
+      // lost just because the lightweight classifier is unavailable or cautious.
+      if (!memories.length) {
+        const identityMatch = text.match(/^\s*(?:i['’]?m|i\s+am|my\s+name\s+is)\s+(.+?)\s*[.!?]?\s*$/i);
+        if (identityMatch) {
+          const value = identityMatch[1].trim();
+          const transient = /^(tired|sleepy|hungry|thirsty|happy|sad|angry|bored|busy|fine|okay|ok|ready|confused|excited|scared|sick)$/i;
+          if (value && !transient.test(value) && value.length <= 60) {
+            memories = [{
+              content: /^(?:i['’]?m|i\s+am)\s+/i.test(text)
+                ? `The user's name/identity is ${value}`
+                : `The user's name is ${value}`,
+              category: "personal",
+              importance: 5,
+            }];
+          }
+        }
+      }
+
+      if (!memories.length) return;
       // Save every durable fact Gemini extracted, not just a single summary.
-      for (const memory of decision.memories) {
+      for (const memory of memories) {
         await memoryService.saveMemory(
           memory.content,
           memory.category,
