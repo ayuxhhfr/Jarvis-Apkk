@@ -542,7 +542,15 @@ export class GeminiLiveService {
     if (!text.trim() || !this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     this.voiceOutputActive = true;
     if (isAndroidApp()) {
-      this.ws.send(JSON.stringify({ type: "speak", text }));
+      this.ws.send(JSON.stringify({
+        clientContent: {
+          turns: [{
+            role: "user",
+            parts: [{ text: `[VOICE OUTPUT ONLY] Speak the following final JARVIS manager response exactly as written. Do not add, remove, reinterpret, answer, or call any tool. Response: ${text}` }],
+          }],
+          turnComplete: true,
+        },
+      }));
     } else {
       this.ws.send(JSON.stringify({ type: "speak", text }));
     }
