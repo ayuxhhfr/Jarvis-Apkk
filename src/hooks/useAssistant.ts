@@ -16,6 +16,7 @@ import { ASSISTANT_PROFILES, DEFAULT_PROFILE_ID } from "../config/assistantProfi
 import { useGeminiLive } from "./useGeminiLive";
 import { useVoice } from "./useVoice";
 import { geminiText } from "../services/geminiText";
+import { managerService } from "../services/managerService";
 import { parseBrowserIntent } from "../services/browserTools";
 import { memoryService } from "../services/memoryService";
 import { browserManager } from "../services/browserManager";
@@ -229,7 +230,8 @@ export function useAssistant() {
         systemInstruction: fullInstruction,
         model: settings.liveModel,
         thinkingLevel: settings.thinkingLevel,
-      });
+      voiceOnly: true,
+        });
     })();
   }, [connectLive]);
 
@@ -268,6 +270,7 @@ export function useAssistant() {
               systemInstruction: fullInstruction,
               model: updated.liveModel,
               thinkingLevel: updated.thinkingLevel,
+            voiceOnly: true,
             });
           }, 200);
         }
@@ -404,47 +407,85 @@ export function useAssistant() {
         sessionService.consumeReturnEvent();
 
         try {
-          // 1. Check direct browser intent
           const browserIntent = parseBrowserIntent(clean, browserManager.isCurrentSiteYouTube());
-          if (browserIntent) {
-            browserManager.executeTool(browserIntent.name, browserIntent.args);
-          }
+          if (browserIntent) browserManager.executeTool(browserIntent.name, browserIntent.args);
 
-          // 2. Explicit memory commands are deterministic; ordinary speech goes
-          // through Gemini's long-term-memory gatekeeper.
           const memoryIntent = memoryService.parseMemoryIntent(clean);
           if (memoryIntent) {
-            if (memoryIntent.type === "save" && memoryIntent.content) {
-              await memoryService.saveMemory(
-                memoryIntent.content,
-                memoryIntent.category,
-                3,
-                "voice_command"
-              );
-            } else if (memoryIntent.type === "delete" && memoryIntent.target) {
-              await memoryService.deleteMemoryByPattern(memoryIntent.target);
-            } else if (memoryIntent.type === "clear") {
-              await memoryService.clearMemories();
-            }
+            if (memoryIntent.type === "save" && memoryIntent.content) await memoryService.saveMemory(memoryIntent.content, memoryIntent.category, 3, "voice_command");
+            else if (memoryIntent.type === "delete" && memoryIntent.target) await memoryService.deleteMemoryByPattern(memoryIntent.target);
+            else if (memoryIntent.type === "clear") await memoryService.clearMemories();
           } else {
             void learnImplicitMemory(clean, "voice_command");
           }
-          // 3. Check screen share natural language intent
+
           const screenIntent = screenShareService.parseScreenShareIntent(clean);
           if (screenIntent) {
-            if (screenIntent.type === "start") {
-              await screenShareService.start();
-            } else if (screenIntent.type === "stop") {
-              screenShareService.stop();
+            if (screenIntent.type === "start") await screenShareService.start();
+            else if (screenIntent.type === "stop") screenShareService.stop();
+          }
+
+          const memoryContext = await memoryService.getRelevantContext(clean).catch(() => "");
+          const temporalContext = sessionService.getTemporalContext(settingsRef.current.assistantName, settingsRef.current.voice);
+          const browserContext = browserManager.getAssistantContext();
+          const activeFrame = screenShareService.isSharing() ? screenShareService.captureFrame(true) || screenShareService.getLatestFrame() : null;
+          const combinedContext = [temporalContext, browserContext, memoryContext].filter(Boolean).join("\n");
+
+          const assistantMsgId = (settingsRef.current.selectedProfileId || "jarvis") + "-" + Date.now();
+          setMessages((prev) => [...prev, {
+            id: assistantMsgId, role: "assistant",
+            sender: (settingsRef.current.selectedProfileId || "jarvis") as any,
+            content: "", text: "", timestamp: Date.now(),
+            status: "streaming", isStreaming: true, isVoice: true,
+          }]);
+          setState("thinking");
+
+          let reply = "";
+          await managerService.send({
+            message: clean,
+            systemInstruction: settingsRef.current.systemInstruction || JARVIS_SYSTEM_INSTRUCTION,
+            history: messagesRef.current.slice(-10).map((m) => ({
+              role: m.role === "user" || m.sender === "user" ? "user" : "model",
+              text: m.content || m.text || "",
+            })),
+            context: combinedContext,
+            image: activeFrame ? { data: activeFrame.base64, mimeType: activeFrame.mimeType } : undefined,
+          }, (chunk) => {
+            reply += chunk;
+            setMessages((prev) => prev.map((m) => m.id === assistantMsgId ? {
+              ...m, content: reply, text: reply, status: "streaming", isStreaming: true,
+            } : m));
+          }, async (toolCall) => {
+            try {
+              if (toolCall.name === "start_screen_share") await screenShareService.start();
+              else if (toolCall.name === "stop_screen_share") screenShareService.stop();
+              else if (toolCall.name === "save_memory") await memoryService.saveMemory(toolCall.args?.content || "", toolCall.args?.category, toolCall.args?.importance || 3, "voice_command");
+              else if (toolCall.name === "delete_memory") await memoryService.deleteMemoryByPattern(toolCall.args?.target || "");
+              else if (toolCall.name === "clear_memories") await memoryService.clearMemories();
+              else browserManager.executeTool(toolCall.name, toolCall.args || {});
+            } catch (toolErr) {
+              console.warn("Manager tool execution warning:", toolErr);
             }
+          });
+
+          setMessages((prev) => prev.map((m) => m.id === assistantMsgId ? {
+            ...m, content: reply, text: reply, status: "complete", isStreaming: false,
+          } : m));
+
+          if (reply && settingsRef.current.voiceEnabled && geminiLive.connected) {
+            setState("speaking");
+            setAssistantSpeaking(true);
+            geminiLive.speakText(reply);
+          } else {
+            setState("idle");
           }
         } catch (err) {
-          console.warn("Error handling voice intent:", err);
+          console.warn("Manager voice turn failed:", err);
+          setState("idle");
+        } finally {
+          currentUserIdRef.current = null;
         }
-
-        currentUserIdRef.current = null;
       }
-    });
 
     // Server-side interruption acknowledgement
     const unsubInterrupted = geminiLive.onInterrupted(() => {
@@ -593,6 +634,7 @@ export function useAssistant() {
               persistentMemory,
             model: settingsRef.current.liveModel,
             thinkingLevel: settingsRef.current.thinkingLevel,
+          voiceOnly: true,
           });
         }
 
@@ -637,6 +679,7 @@ export function useAssistant() {
               persistentMemory,
             model: settingsRef.current.liveModel,
             thinkingLevel: settingsRef.current.thinkingLevel,
+          voiceOnly: true,
           });
         }
         setState("listening");
@@ -766,131 +809,73 @@ export function useAssistant() {
         ? `${trimmed}\n\n${combinedContext}`
         : trimmed;
 
-      // Android voice/text uses the same Gemini Live native-audio path.
-      // Do NOT route Android responses through generateAndroidReply()/Android TTS.
-      if (isAndroidApp() && !geminiLive.connected) {
-        await connectLive();
-      }
-
-      // Try Live API first if connected
-      if (geminiLive.connected) {
-        if (image) {
-          geminiLive.sendScreenFrame(image.data, image.mimeType);
-        } else if (activeFrame) {
-          geminiLive.sendScreenFrame(activeFrame.base64, activeFrame.mimeType);
+      // Gemini 3.8 is the authoritative manager for every user query.
+      // Gemini 3.1 Live only speaks the manager's final answer.
+      try {
+        if (settingsRef.current.voiceEnabled && !geminiLive.connected) {
+          await connectLive({
+            voice: settingsRef.current.voice,
+            systemInstruction: settingsRef.current.systemInstruction || JARVIS_SYSTEM_INSTRUCTION,
+            model: settingsRef.current.liveModel,
+            thinkingLevel: settingsRef.current.thinkingLevel,
+            voiceOnly: true,
+          });
         }
-        sendText(contextualLiveText);
-      } else {
-        // Fallback to streaming REST chat
-        try {
-          const assistantMsgId = (settingsRef.current.selectedProfileId || "jarvis") + "-" + Date.now();
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: assistantMsgId,
-              role: "assistant",
-              sender: (settingsRef.current.selectedProfileId || "jarvis") as any,
-              content: "",
-              text: "",
-              timestamp: Date.now(),
-              status: "streaming",
-              isStreaming: true,
-              isVoice: false,
-            },
-          ]);
 
-          let replyAccumulator = "";
-          setState("speaking");
+        const assistantMsgId = (settingsRef.current.selectedProfileId || "jarvis") + "-" + Date.now();
+        setMessages((prev) => [...prev, {
+          id: assistantMsgId, role: "assistant",
+          sender: (settingsRef.current.selectedProfileId || "jarvis") as any,
+          content: "", text: "", timestamp: Date.now(),
+          status: "streaming", isStreaming: true, isVoice: !!settingsRef.current.voiceEnabled,
+        }]);
 
-          const effectiveInstruction =
-            (settingsRef.current.systemInstruction || JARVIS_SYSTEM_INSTRUCTION) +
-            "\n" +
-            combinedContext;
-
-          await geminiText.sendTextMessageStream(
-            {
-              message: trimmed,
-              systemInstruction: effectiveInstruction,
-              model: settingsRef.current.liveModel,
-              history: messagesRef.current.slice(-10).map((m) => ({
-                role: m.role === "user" || m.sender === "user" ? "user" : "model",
-                text: m.content || m.text || "",
-              })),
-              image: image
-                ? { data: image.data, mimeType: image.mimeType }
-                : (activeFrame
-                  ? { data: activeFrame.base64, mimeType: activeFrame.mimeType }
-                  : undefined),
-            },
-            (chunk) => {
-              replyAccumulator += chunk;
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantMsgId
-                    ? {
-                        ...m,
-                        content: replyAccumulator,
-                        text: replyAccumulator,
-                        status: "streaming",
-                        isStreaming: true,
-                      }
-                    : m
-                )
-              );
-            },
-            async (toolCall) => {
-              if (toolCall.name === "start_screen_share") {
-                await screenShareService.start();
-              } else if (toolCall.name === "stop_screen_share") {
-                screenShareService.stop();
-              } else if (toolCall.name === "save_memory") {
-                await memoryService.saveMemory(
-                  toolCall.args?.content,
-                  toolCall.args?.category,
-                  toolCall.args?.importance,
-                  "user_explicit"
-                );
-              } else if (toolCall.name === "delete_memory") {
-                await memoryService.deleteMemoryByPattern(toolCall.args?.target || "");
-              } else if (toolCall.name === "clear_memories") {
-                await memoryService.clearMemories();
-              } else {
-                browserManager.executeTool(toolCall.name, toolCall.args);
-              }
-            }
-          );
-
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantMsgId
-                ? { ...m, status: "complete", isStreaming: false }
-                : m
-            )
-          );
-
-          // If voice output is enabled, speak the response
-          if (settingsRef.current.voiceEnabled && replyAccumulator) {
-            setAssistantSpeaking(true);
-            const audio = await geminiText.textToSpeech(replyAccumulator, settingsRef.current.voice);
-            if (audio) {
-              playAudioChunk(audio, () => {
-                setState(isMicActive ? "listening" : "idle");
-                setAssistantSpeaking(false);
-              });
-            } else {
-              setState(isMicActive ? "listening" : "idle");
-              setAssistantSpeaking(false);
-            }
-          } else {
-            setState(isMicActive ? "listening" : "idle");
+        let replyAccumulator = "";
+        setState("thinking");
+        await managerService.send({
+          message: trimmed,
+          systemInstruction: settingsRef.current.systemInstruction || JARVIS_SYSTEM_INSTRUCTION,
+          history: messagesRef.current.slice(-10).map((m) => ({
+            role: m.role === "user" || m.sender === "user" ? "user" : "model",
+            text: m.content || m.text || "",
+          })),
+          context: combinedContext,
+          image: image ? { data: image.data, mimeType: image.mimeType } : (activeFrame ? { data: activeFrame.base64, mimeType: activeFrame.mimeType } : undefined),
+        }, (chunk) => {
+          replyAccumulator += chunk;
+          setMessages((prev) => prev.map((m) => m.id === assistantMsgId ? {
+            ...m, content: replyAccumulator, text: replyAccumulator, status: "streaming", isStreaming: true,
+          } : m));
+        }, async (toolCall) => {
+          try {
+            if (toolCall.name === "start_screen_share") await screenShareService.start();
+            else if (toolCall.name === "stop_screen_share") screenShareService.stop();
+            else if (toolCall.name === "save_memory") await memoryService.saveMemory(toolCall.args?.content || "", toolCall.args?.category, toolCall.args?.importance || 3, "user_explicit");
+            else if (toolCall.name === "delete_memory") await memoryService.deleteMemoryByPattern(toolCall.args?.target || "");
+            else if (toolCall.name === "clear_memories") await memoryService.clearMemories();
+            else browserManager.executeTool(toolCall.name, toolCall.args || {});
+          } catch (toolErr) {
+            console.warn("Manager tool execution warning:", toolErr);
           }
-        } catch (err) {
+        });
+
+        setMessages((prev) => prev.map((m) => m.id === assistantMsgId ? {
+          ...m, content: replyAccumulator, text: replyAccumulator, status: "complete", isStreaming: false,
+        } : m));
+
+        if (settingsRef.current.voiceEnabled && replyAccumulator && geminiLive.connected) {
+          setState("speaking");
+          setAssistantSpeaking(true);
+          geminiLive.speakText(replyAccumulator);
+        } else {
           setState("idle");
-          setActiveError(err instanceof Error ? err.message : "Failed to get response");
         }
+      } catch (err) {
+        setState("idle");
+        setActiveError(err instanceof Error ? err.message : "Failed to get response from JARVIS manager");
       }
     },
-    [geminiLive, sendText, stopPlayback, setAssistantSpeaking, playAudioChunk, isMicActive]
+    [geminiLive, stopPlayback, setAssistantSpeaking, isMicActive, connectLive]
   );
 
   sendTextMessageRef.current = sendTextMessage;
