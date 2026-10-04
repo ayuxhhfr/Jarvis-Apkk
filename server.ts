@@ -17,6 +17,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = parseInt(process.env.PORT || "3000", 10);
+const CHAT_MODEL = "gemini-3.8-flash";
 const LIVE_MODEL = "gemini-3.1-flash-live-preview";
 const TTS_MODEL = "gemini-3.8-flash-lite-tts";
 const MEMORY_MODEL = "gemini-2.5-flash-lite";
@@ -636,6 +637,86 @@ async function startServer() {
       thinkingLevel: "minimal",
       status: apiKey ? "operational" : "missing_key",
     });
+  });
+
+  // REST API: Gemini 3.8 JARVIS Manager.
+  // 3.8 owns reasoning and final answers. Gemini Live is voice I/O only.
+  app.post("/api/gemini/manager", async (req, res) => {
+    if (!apiKey) {
+      res.status(500).json({ error: "GEMINI_API_KEY is not configured" });
+      return;
+    }
+
+    const { message, systemInstruction, history, context, image } = req.body;
+    if (!message) {
+      res.status(400).json({ error: "Message is required" });
+      return;
+    }
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+
+    try {
+      const contents: any[] = [];
+      if (Array.isArray(history)) {
+        for (const h of history) {
+          if (!h?.text) continue;
+          contents.push({
+            role: h.role === "user" ? "user" : "model",
+            parts: [{ text: h.text }],
+          });
+        }
+      }
+
+      const userParts: any[] = [{
+        text: [message, context || ""].filter(Boolean).join("\n\n"),
+      }];
+      if (image?.data) {
+        userParts.push({
+          inlineData: {
+            data: image.data,
+            mimeType: image.mimeType || "image/jpeg",
+          },
+        });
+      }
+      contents.push({ role: "user", parts: userParts });
+
+      const streamResponse = await ai.models.generateContentStream({
+        model: CHAT_MODEL,
+        contents,
+        config: {
+          systemInstruction:
+            (systemInstruction || JARVIS_SYSTEM_INSTRUCTION) +
+            "\n\n[ARCHITECTURE] Gemini 3.8 Flash is the authoritative JARVIS manager. It owns reasoning, context, decisions and the final answer. Gemini 3.1 Flash Live Preview is only the realtime voice I/O engine; never treat its independent model output as the authoritative answer.",
+          // @ts-ignore
+          thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+          // Keep application declarations available to the manager. Execution of
+          // browser/screen/memory actions remains client-side for security/state access.
+          // @ts-ignore
+          tools: [{ functionDeclarations: ALL_FUNCTION_DECLARATIONS }],
+        },
+      });
+
+      for await (const chunk of streamResponse) {
+        if (chunk.text) {
+          res.write(`data: ${JSON.stringify({ text: chunk.text })}\\n\\n`);
+        }
+        const functionCalls = chunk.functionCalls;
+        if (functionCalls?.length) {
+          for (const call of functionCalls) {
+            res.write(`data: ${JSON.stringify({ toolCall: { id: call.id, name: call.name, args: call.args || {} } })}\\n\\n`);
+          }
+        }
+      }
+      res.write("data: [DONE]\\n\\n");
+      res.end();
+    } catch (err: any) {
+      console.error("Manager generation error:", err);
+      res.write(`data: ${JSON.stringify({ error: err?.message || "Manager generation error" })}\\n\\n`);
+      res.end();
+    }
   });
 
   // REST API: Dedicated long-term-memory classifier.
