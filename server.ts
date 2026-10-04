@@ -648,7 +648,8 @@ async function startServer() {
     res.json({
       ok: true,
       hasKey: !!apiKey,
-      model: LIVE_MODEL,
+      managerModel: CHAT_MODEL,
+      voiceModel: LIVE_MODEL,
       voice: DEFAULT_VOICE,
       thinkingLevel: "minimal",
       status: apiKey ? "operational" : "missing_key",
