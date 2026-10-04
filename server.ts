@@ -654,23 +654,33 @@ async function startServer() {
     }
 
     try {
-      const response = await ai.models.generateContent({
-        model: MEMORY_MODEL,
-        contents: [{ role: "user", parts: [{ text: message }] }],
-        config: {
-          systemInstruction: systemInstruction || "Decide whether this user message contains durable information worth remembering. Return JSON only.",
-          responseMimeType: "application/json",
-          temperature: 0,
-        },
-      });
+      const runClassifier = async (model: string) => {
+        const response = await ai.models.generateContent({
+          model,
+          contents: [{ role: "user", parts: [{ text: message }] }],
+          config: {
+            systemInstruction: systemInstruction || "Decide whether this user message contains durable information worth remembering. Return JSON only.",
+            responseMimeType: "application/json",
+            temperature: 0,
+          },
+        });
+        const raw = response.text || "";
+        let result: any;
+        try {
+          result = JSON.parse(raw);
+        } catch {
+          const cleaned = raw.replace(/^\s*```(?:json)?/i, "").replace(/```\s*$/i, "").trim();
+          result = JSON.parse(cleaned);
+        }
+        return result;
+      };
 
-      const raw = response.text || "";
       let result: any;
       try {
-        result = JSON.parse(raw);
-      } catch {
-        const cleaned = raw.replace(/^\s*```(?:json)?/i, "").replace(/```\s*$/i, "").trim();
-        result = JSON.parse(cleaned);
+        result = await runClassifier(MEMORY_MODEL);
+      } catch (primaryErr) {
+        console.warn("Primary memory classifier failed; falling back to chat model:", primaryErr);
+        result = await runClassifier("gemini-3.8-flash");
       }
 
       res.json(result);
