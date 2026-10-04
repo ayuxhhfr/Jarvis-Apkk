@@ -3,7 +3,7 @@
  * Single source of truth for all text, multimodal vision, live audio, and TTS models.
  */
 
-export const CHAT_MODEL = "gemini-3.8-flash";
+// JARVIS brain/manager. All normal reasoning, orchestration, tools and final answers are owned by this model.\nexport const CHAT_MODEL = "gemini-3.8-flash";
 export const CHAT_MODEL_NAME = "Gemini 3.8 Flash";
 
 // Lightweight model used only by the background long-term-memory classifier.
@@ -11,7 +11,7 @@ export const CHAT_MODEL_NAME = "Gemini 3.8 Flash";
 export const MEMORY_MODEL = "gemini-2.5-flash-lite";
 export const MEMORY_MODEL_NAME = "Gemini 2.5 Flash-Lite";
 
-export const LIVE_MODEL = "gemini-3.1-flash-live-preview";
+// Realtime voice I/O engine only. It must never become the authoritative conversational brain.\nexport const LIVE_MODEL = "gemini-3.1-flash-live-preview";
 export const LIVE_MODEL_NAME = "Gemini 3.1 Flash Live Preview";
 
 export const TTS_MODEL = "gemini-3.8-flash-lite-tts";
