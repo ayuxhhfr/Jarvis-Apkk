@@ -952,22 +952,26 @@ export function useAssistant() {
         },
       ]);
 
-      // Synthesize and play audio in the active voice (Aoede for Ira, Charon for JARVIS)
+      // Use Gemini 3.1 Live as the voice layer for greetings too.
+      // Keep the old TTS path only as a compatibility fallback if Live is unavailable.
       if (settingsRef.current.voiceEnabled) {
         try {
-          const audio = await geminiText.textToSpeech(text, settingsRef.current.voice);
-          if (audio) {
+          if (geminiLive.connected) {
             setAssistantSpeaking(true);
-            playAudioChunk(audio, () => {
-              setAssistantSpeaking(false);
-            });
+            geminiLive.speakText(text);
+          } else {
+            const audio = await geminiText.textToSpeech(text, settingsRef.current.voice);
+            if (audio) {
+              setAssistantSpeaking(true);
+              playAudioChunk(audio, () => setAssistantSpeaking(false));
+            }
           }
         } catch (err) {
-          console.warn("Failed to generate return greeting TTS:", err);
+          console.warn("Failed to generate return greeting:", err);
         }
       }
     },
-    [playAudioChunk, setAssistantSpeaking]
+    [geminiLive, playAudioChunk, setAssistantSpeaking]
   );
 
   useEffect(() => () => {
