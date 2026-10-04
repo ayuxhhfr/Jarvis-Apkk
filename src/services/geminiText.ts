@@ -108,6 +108,7 @@ Analyze the USER MESSAGE for information that should survive future conversation
 
 MEMORY SHOULD INCLUDE:
 - stable identity/profile: name, age, location if explicitly stated, role, important background
+- self-identification such as "I'm Void", "im Aayush", "I am a gamer", or "my name is X" is ALWAYS a durable personal memory
 - preferences: likes/dislikes, communication style, UI/design preferences, favorite things
 - technical profile: coding interests, languages, frameworks, tools, devices, skill areas
 - projects: projects being built, repos, apps, games, goals, ongoing work
@@ -115,7 +116,7 @@ MEMORY SHOULD INCLUDE:
 - routines: recurring habits/workflows
 - durable goals: long-term goals or plans
 
-IMPORTANT: "I like coding" IS a memory and must be saved. Understand natural, informal, misspelled or Hinglish phrasing; do not require exact wording. The caller provides a complete user utterance; never infer missing words.
+IMPORTANT: "I like coding" IS a memory and must be saved. Identity statements such as "I'm Void" or "my name is Void" MUST also be saved as personal memory. Understand natural, informal, misspelled or Hinglish phrasing; do not require exact wording. The caller provides a complete user utterance; never infer missing words.
 
 DO NOT SAVE:
 - greetings or filler
@@ -140,19 +141,27 @@ If nothing durable exists, return {"shouldRemember":false,"memories":[],"reason"
       if (isAndroidApp()) {
         const key = getAndroidApiKey().trim();
         if (!key) throw new Error("no Android Gemini key");
-        const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(MEMORY_MODEL) + ":generateContent", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: system }] },
-            contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-            generationConfig: { responseMimeType: "application/json", temperature: 0 },
-          }),
-        });
-        if (!res.ok) throw new Error(`Direct memory classifier HTTP ${res.status}`);
-        const data = await res.json();
-        const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("") || "";
-        return normalizeClassification(text);
+        const requestModel = async (model: string): Promise<MemoryClassification> => {
+          const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+            body: JSON.stringify({
+              systemInstruction: { parts: [{ text: system }] },
+              contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+              generationConfig: { responseMimeType: "application/json", temperature: 0 },
+            }),
+          });
+          if (!res.ok) throw new Error(`Direct memory classifier HTTP ${res.status} for ${model}`);
+          const data = await res.json();
+          const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("") || "";
+          return normalizeClassification(text);
+        };
+        try {
+          return await requestModel(MEMORY_MODEL);
+        } catch (primaryErr) {
+          console.warn("[Memory] Primary 2.5 Flash-Lite unavailable; falling back to chat model.", primaryErr);
+          return await requestModel("gemini-3.8-flash");
+        }
       }
       const res = await fetch("/api/gemini/memory-classify", {
         method: "POST", headers: { "Content-Type": "application/json" },
