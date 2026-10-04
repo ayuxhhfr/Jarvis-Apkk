@@ -706,13 +706,12 @@ async function startServer() {
         config: {
           systemInstruction:
             (systemInstruction || JARVIS_SYSTEM_INSTRUCTION) +
-            "\n\n[ARCHITECTURE] Gemini 3.8 Flash is the authoritative JARVIS manager. It owns reasoning, context, decisions and the final answer. Gemini 3.1 Flash Live Preview is only the realtime voice I/O engine; never treat its independent model output as the authoritative answer.",
+            "\n\n[ARCHITECTURE] Gemini 3.8 Flash is the authoritative JARVIS manager. It owns reasoning, context, decisions and the final answer. Gemini 3.1 Flash Live Preview is only the realtime voice I/O engine; never treat its independent model output as the authoritative answer. Application actions such as browser, screen-share and memory commands are executed by the JARVIS client orchestration layer; do not emit function calls from this manager endpoint."
           // @ts-ignore
           thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
-          // Keep application declarations available to the manager. Execution of
-          // browser/screen/memory actions remains client-side for security/state access.
-          // @ts-ignore
-          tools: [{ functionDeclarations: ALL_FUNCTION_DECLARATIONS }],
+          // Application actions are executed by the client orchestration layer.
+          // The manager must return the final natural-language answer instead of
+          // opening a second, unsatisfied function-call turn here.
         },
       });
 
