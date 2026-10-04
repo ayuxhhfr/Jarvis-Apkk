@@ -180,6 +180,7 @@ export function useAssistant() {
     voice: settings.voice,
     thinkingLevel: settings.thinkingLevel,
     systemInstruction: settings.systemInstruction,
+    voiceOnly: true,
   });
 
   /**
@@ -685,7 +686,7 @@ export function useAssistant() {
         setState("listening");
         if (settingsRef.current.selectedProfileId === "ira" && ASSISTANT_PROFILES.ira.initialGreeting) {
           const profile = ASSISTANT_PROFILES.ira;
-          if (geminiLive.connected && profile.initialGreeting) sendText(`Please say aloud exactly: "${profile.initialGreeting}"`);
+          if (geminiLive.connected && profile.initialGreeting) geminiLive.speakText(profile.initialGreeting);
         }
         await startListening((base64Pcm) => sendAudio(base64Pcm), () => handleInterrupt());
       } catch (err) {
@@ -693,7 +694,7 @@ export function useAssistant() {
         setActiveError(err instanceof Error ? err.message : "Failed to activate microphone");
       }
     }
-  }, [androidMicActive, isMicActive, stopListening, stopPlayback, setAssistantSpeaking, geminiLive, connectLive, startListening, sendAudio, handleInterrupt, sendText]);
+  }, [androidMicActive, isMicActive, stopListening, stopPlayback, setAssistantSpeaking, geminiLive, connectLive, startListening, sendAudio, handleInterrupt]);
 
   /**
    * Send text message.
