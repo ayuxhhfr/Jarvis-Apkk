@@ -172,7 +172,6 @@ export function useAssistant() {
     errorMessage: liveError,
     connect: connectLive,
     sendAudio,
-    sendText,
     sendInterrupt,
     geminiLive,
   } = useGeminiLive({
@@ -487,6 +486,7 @@ export function useAssistant() {
           currentUserIdRef.current = null;
         }
       }
+    });
 
     // Server-side interruption acknowledgement
     const unsubInterrupted = geminiLive.onInterrupted(() => {
@@ -806,10 +806,6 @@ export function useAssistant() {
 
       // Construct combined contextual payload
       const combinedContext = [temporalContext, browserContext, memoryContext].filter(Boolean).join("\n");
-      const contextualLiveText = combinedContext
-        ? `${trimmed}\n\n${combinedContext}`
-        : trimmed;
-
       // Gemini 3.8 is the authoritative manager for every user query.
       // Gemini 3.1 Live only speaks the manager's final answer.
       try {
