@@ -443,6 +443,7 @@ export class GeminiLiveService {
     if (!content) return;
 
     if (content.interrupted) {
+      this.voiceOutputActive = false;
       this.onInterruptedCallbacks.forEach((cb) => cb());
     }
 
@@ -557,6 +558,7 @@ export class GeminiLiveService {
   }
 
   public sendInterrupt(): void {
+    this.voiceOutputActive = false;
     if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
     if (isAndroidApp()) {
