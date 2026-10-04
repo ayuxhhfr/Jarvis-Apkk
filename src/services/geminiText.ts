@@ -12,139 +12,96 @@ export interface ChatRequestOptions {
   systemInstruction?: string;
   history?: Array<{ role: "user" | "model"; text: string }>;
   model?: string;
-  image?: {
-    data: string;
-    mimeType?: string;
-  };
-  images?: Array<{
-    data: string;
-    mimeType?: string;
-  }>;
+  image?: { data: string; mimeType?: string };
+  images?: Array<{ data: string; mimeType?: string }>;
 }
+export interface StatusResponse { ok: boolean; model: string; hasKey: boolean; status: string; }
+export type MemoryClassCategory = "personal" | "preference" | "project" | "instruction" | "routine" | "technical" | "other";
+export interface MemoryClassification {
+  shouldRemember: boolean;
+  memories: Array<{ content: string; category: MemoryClassCategory; importance: number }>;
+  reason?: string;
+  failed?: boolean;
+}
+const MEMORY_CATEGORIES: MemoryClassCategory[] = ["personal","preference","project","instruction","routine","technical","other"];
 
-export interface StatusResponse {
-  ok: boolean;
-  model: string;
-  hasKey: boolean;
-  status: string;
+function normalizeClassification(raw: string): MemoryClassification {
+  const text = raw.trim().replace(/^\s*\`\`\`(?:json)?/i, "").replace(/\`\`\`\s*$/i, "").trim();
+  let parsed: any;
+  try { parsed = JSON.parse(text); }
+  catch {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error("Memory classifier returned non-JSON output");
+    parsed = JSON.parse(match[0]);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Memory classifier returned an invalid object.");
+  if (typeof parsed.shouldRemember !== "boolean") throw new Error("Memory classifier returned an invalid shouldRemember value.");
+  if (!Array.isArray(parsed.memories)) throw new Error("Memory classifier returned an invalid memories array.");
+  if (parsed.reason !== undefined && typeof parsed.reason !== "string") throw new Error("Memory classifier returned an invalid reason.");
+
+  const memories = parsed.memories.map((m: any, index: number) => {
+    if (!m || typeof m !== "object" || Array.isArray(m)) throw new Error(`Memory classifier returned an invalid memory at index ${index}.`);
+    if (typeof m.content !== "string" || !m.content.trim() || m.content.trim().length > 400) throw new Error(`Memory classifier returned invalid content at index ${index}.`);
+    if (!MEMORY_CATEGORIES.includes(m.category)) throw new Error(`Memory classifier returned invalid category at index ${index}.`);
+    if (!Number.isInteger(m.importance) || m.importance < 1 || m.importance > 5) throw new Error(`Memory classifier returned invalid importance at index ${index}.`);
+    return { content: m.content.trim(), category: m.category as MemoryClassCategory, importance: m.importance as number };
+  });
+  if (!parsed.shouldRemember && memories.length > 0) throw new Error("Memory classifier returned memories while shouldRemember was false.");
+  if (parsed.shouldRemember && memories.length === 0) throw new Error("Memory classifier requested remembering without any memories.");
+  return { shouldRemember: parsed.shouldRemember, memories, reason: parsed.reason };
 }
 
 export class GeminiTextService {
-  /**
-   * Check server health and Gemini configuration.
-   */
   public async checkStatus(): Promise<StatusResponse> {
     try {
       const res = await fetch("/api/status");
-      if (!res.ok) {
-        throw new Error(`Server returned ${res.status}`);
-      }
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
       return await res.json();
     } catch (err) {
-      return {
-        ok: false,
-        model: CHAT_MODEL,
-        hasKey: false,
-        status: err instanceof Error ? err.message : "Server unavailable",
-      };
+      return { ok: false, model: CHAT_MODEL, hasKey: false, status: err instanceof Error ? err.message : "Server unavailable" };
     }
   }
 
-  /**
-   * Send a text message to the server chat endpoint with streaming response.
-   */
-  public async sendTextMessageStream(
-    options: ChatRequestOptions,
-    onChunk: (chunk: string) => void,
-    onToolCall?: (toolCall: { name: string; args: any }) => void
-  ): Promise<string> {
+  public async sendTextMessageStream(options: ChatRequestOptions, onChunk: (chunk: string) => void, onToolCall?: (toolCall: { name: string; args: any }) => void): Promise<string> {
     const res = await fetch("/api/gemini/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: options.message,
-        systemInstruction: options.systemInstruction,
-        history: options.history || [],
-        model: options.model || CHAT_MODEL,
-        image: options.image,
-        images: options.images,
-      }),
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: options.message, systemInstruction: options.systemInstruction, history: options.history || [], model: options.model || CHAT_MODEL, image: options.image, images: options.images }),
     });
-
     if (!res.ok) {
       const errData = await res.json().catch(() => ({}));
       throw new Error(errData.error || `HTTP error ${res.status}`);
     }
-
-    if (!res.body) {
-      throw new Error("No response body received from server");
-    }
-
+    if (!res.body) throw new Error("No response body received from server");
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let fullText = "";
-
     try {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
         const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n");
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const data = line.slice(6).trim();
-            if (data === "[DONE]") continue;
-            try {
-              const parsed = JSON.parse(data);
-              if (parsed.error && !parsed.text) {
-                throw new Error(parsed.error);
-              }
-              if (parsed.toolCall && onToolCall) {
-                onToolCall(parsed.toolCall);
-              }
-              if (parsed.text) {
-                fullText += parsed.text;
-                onChunk(parsed.text);
-              }
-            } catch (err: any) {
-              if (err?.message && !data.startsWith("{")) {
-                fullText += data;
-                onChunk(data);
-              } else if (err?.message && data.includes('"error"')) {
-                throw err;
-              }
-            }
+        for (const line of chunk.split("\n")) {
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6).trim();
+          if (data === "[DONE]") continue;
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.error && !parsed.text) throw new Error(parsed.error);
+            if (parsed.toolCall && onToolCall) onToolCall(parsed.toolCall);
+            if (parsed.text) { fullText += parsed.text; onChunk(parsed.text); }
+          } catch (err: any) {
+            if (err?.message && !data.startsWith("{")) { fullText += data; onChunk(data); }
+            else if (err?.message && data.includes('"error"')) throw err;
           }
         }
       }
-    } finally {
-      try {
-        reader.releaseLock();
-      } catch {
-        // ignore
-      }
-    }
-
+    } finally { try { reader.releaseLock(); } catch {} }
     return fullText;
   }
 
-  /**
-   * Ask Gemini whether a user message contains durable personal/project/preference
-   * information worth saving. This deliberately runs before local heuristics so
-   * JARVIS does not save every conversational sentence.
-   */
-  public async classifyMemoryCandidate(message: string): Promise<{
-    shouldRemember: boolean;
-    memories?: Array<{
-      content: string;
-      category: "personal" | "preference" | "project" | "instruction" | "routine" | "technical" | "other";
-      importance: number;
-    }>;
-    reason?: string;
-  }> {
+  public async classifyMemoryCandidate(message: string, existingMemories: string[] = []): Promise<MemoryClassification> {
     const prompt = message.trim();
-    if (!prompt) return { shouldRemember: false, reason: "empty" };
+    if (!prompt) return { shouldRemember: false, memories: [], reason: "empty" };
 
     const system = `You are JARVIS's long-term memory intelligence layer.
 Analyze the USER MESSAGE for information that should survive future conversations.
@@ -158,108 +115,77 @@ MEMORY SHOULD INCLUDE:
 - routines: recurring habits/workflows
 - durable goals: long-term goals or plans
 
-IMPORTANT: "I like coding" IS a memory and must be saved.
-Also save "I use React/TypeScript", "I prefer dark UI", "I am building JARVIS", etc. when stated as durable facts.
+IMPORTANT: "I like coding" IS a memory and must be saved. Understand natural, informal, misspelled or Hinglish phrasing; do not require exact wording. The caller provides a complete user utterance; never infer missing words.
 
 DO NOT SAVE:
 - greetings or filler
 - questions with no stable user fact
 - one-time commands/tasks
-- temporary emotions
+- temporary emotions or states
 - facts about the assistant/provider
 - transient details only relevant to this turn
+- incomplete speech fragments with no complete durable fact
 
-Extract EVERY distinct durable fact from the message, not just one. If several facts are present, return several memory objects.
-Rewrite each as a concise third-person fact about the user. Never invent information.
+Extract EVERY distinct durable fact. If several facts are present, return several memory objects. Rewrite each as a concise third-person fact about the user. Never invent information.
+If a fact is already in ALREADY STORED with the same meaning, do not return it again.
 Importance: 5 = core identity/critical instruction, 4 = strong preference/project/technical profile, 3 = useful stable fact, 2 = weak preference, 1 = trivial.
 Return ONLY valid JSON:
 {"shouldRemember":true|false,"memories":[{"content":"...","category":"personal|preference|project|instruction|routine|technical|other","importance":1}],"reason":"..."}
-If nothing durable exists, return {"shouldRemember":false,"memories":[],"reason":"..."}.`;
+If nothing durable exists, return {"shouldRemember":false,"memories":[],"reason":"..." }.`;
 
-    const parse = (text: string) => {
-      const cleaned = text.replace(/^\s*```(?:json)?/i, "").replace(/```\s*$/i, "").trim();
-      const parsed = JSON.parse(cleaned);
-      if (Array.isArray(parsed.memories)) {
-        parsed.memories = parsed.memories
-          .filter((m: any) => m && typeof m.content === "string" && m.content.trim())
-          .map((m: any) => ({
-            content: m.content.trim(),
-            category: m.category || "other",
-            importance: Math.min(5, Math.max(1, Number(m.importance) || 3)),
-          }));
+    const stored = existingMemories.slice(0, 40);
+    const userPrompt = "USER MESSAGE:\n" + prompt + (stored.length ? "\n\nALREADY STORED:\n" + stored.map((m) => "- " + m).join("\n") : "");
+
+    const run = async (): Promise<MemoryClassification> => {
+      if (isAndroidApp()) {
+        const key = getAndroidApiKey().trim();
+        if (!key) throw new Error("no Android Gemini key");
+        const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(MEMORY_MODEL) + ":generateContent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: system }] },
+            contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+            generationConfig: { responseMimeType: "application/json", temperature: 0 },
+          }),
+        });
+        if (!res.ok) throw new Error(`Direct memory classifier HTTP ${res.status}`);
+        const data = await res.json();
+        const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("") || "";
+        return normalizeClassification(text);
       }
-      return parsed;
-    };
-
-    try {
       const res = await fetch("/api/gemini/memory-classify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: prompt, systemInstruction: system }),
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: userPrompt, systemInstruction: system }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || `Memory classifier HTTP ${res.status}`);
       }
-      return parse(JSON.stringify(await res.json()));
-    } catch (serverErr) {
-      if (!isAndroidApp()) return { shouldRemember: false, memories: [], reason: "classifier unavailable" };
-      try {
-        const key = getAndroidApiKey().trim();
-        if (!key) return { shouldRemember: false, memories: [], reason: "no Android Gemini key" };
-        const res = await fetch(
-          "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(MEMORY_MODEL) + ":generateContent?key=" + encodeURIComponent(key),
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              systemInstruction: { parts: [{ text: system }] },
-              contents: [{ role: "user", parts: [{ text: prompt }] }],
-              generationConfig: { responseMimeType: "application/json", temperature: 0 },
-            }),
-          }
-        );
-        if (!res.ok) throw new Error(`Direct memory classifier HTTP ${res.status}`);
-        const data = await res.json();
-        const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("") || "";
-        return parse(text);
-      } catch (androidErr) {
-        console.warn("Gemini memory classifier unavailable:", serverErr, androidErr);
-        return { shouldRemember: false, memories: [], reason: "classifier unavailable" };
+      return normalizeClassification(JSON.stringify(await res.json()));
+    };
+
+    try { return await run(); }
+    catch (firstErr) {
+      try { await new Promise((r) => setTimeout(r, 600)); return await run(); }
+      catch (secondErr) {
+        console.warn("[Memory] Gemini classifier failed:", firstErr, secondErr);
+        return { shouldRemember: false, memories: [], reason: "classifier unavailable", failed: true };
       }
     }
   }
 
-  /**
-   * Generate speech audio for text output when voice output is enabled.
-   */
   public async textToSpeech(text: string, voiceName: string = VOICE, signal?: AbortSignal): Promise<string | null> {
     try {
-      const res = await fetch("/api/gemini/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text,
-          voice: voiceName,
-        }),
-        signal,
-      });
-
-      if (!res.ok) {
-        return null;
-      }
-
+      const res = await fetch("/api/gemini/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, voice: voiceName }), signal });
+      if (!res.ok) return null;
       const data = await res.json();
       return data.audio || null;
     } catch (err: any) {
-      if (err.name === "AbortError") {
-        console.log("TTS generation aborted");
-      } else {
-        console.warn("TTS generation warning:", err);
-      }
+      if (err.name === "AbortError") console.log("TTS generation aborted");
+      else console.warn("TTS generation warning:", err);
       return null;
     }
   }
 }
-
 export const geminiText = new GeminiTextService();
