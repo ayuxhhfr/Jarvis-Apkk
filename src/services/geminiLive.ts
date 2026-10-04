@@ -40,6 +40,63 @@ export class GeminiLiveService {
   private onInterruptedCallbacks: Array<() => void> = [];
   private onToolCallCallbacks: Array<(toolCall: { id: string; name: string; args: Record<string, any> }) => void> = [];
   private onUserTranscriptCallbacks: Array<(data: { text: string; finished: boolean }) => void> = [];
+  // Gemini Live input transcription arrives as small fragments. Keep those
+  // fragments together and only expose a completed utterance to the assistant.
+  private userTranscriptBuffer = "";
+  private userTranscriptFlushTimer: number | null = null;
+
+  private queueUserTranscript(text: string, finished = false): void {
+    const chunk = String(text || "");
+    if (!chunk.trim()) return;
+
+    // Gemini can send either deltas (" like", " coding") or cumulative text
+    // ("i", "i like", "i like coding"). Handle both without duplicating text.
+    if (!this.userTranscriptBuffer) {
+      this.userTranscriptBuffer = chunk;
+    } else if (chunk.startsWith(this.userTranscriptBuffer)) {
+      this.userTranscriptBuffer = chunk;
+    } else {
+      this.userTranscriptBuffer += chunk;
+    }
+
+    if (this.userTranscriptFlushTimer !== null) {
+      window.clearTimeout(this.userTranscriptFlushTimer);
+      this.userTranscriptFlushTimer = null;
+    }
+
+    if (finished) {
+      this.flushUserTranscript();
+    } else {
+      // Safety finalization for sessions where the API does not expose a
+      // per-transcript finished flag. Normal turnComplete/model output also
+      // flushes this buffer immediately.
+      this.userTranscriptFlushTimer = window.setTimeout(() => {
+        this.userTranscriptFlushTimer = null;
+        this.flushUserTranscript();
+      }, 1800);
+    }
+  }
+
+  private flushUserTranscript(): void {
+    if (this.userTranscriptFlushTimer !== null) {
+      window.clearTimeout(this.userTranscriptFlushTimer);
+      this.userTranscriptFlushTimer = null;
+    }
+
+    const text = this.userTranscriptBuffer.trim();
+    this.userTranscriptBuffer = "";
+    if (!text) return;
+
+    this.onUserTranscriptCallbacks.forEach((cb) => cb({ text, finished: true }));
+  }
+
+  private clearUserTranscriptBuffer(): void {
+    if (this.userTranscriptFlushTimer !== null) {
+      window.clearTimeout(this.userTranscriptFlushTimer);
+      this.userTranscriptFlushTimer = null;
+    }
+    this.userTranscriptBuffer = "";
+  }
 
   public get connected(): boolean {
     return this.isConnected && this.setupReady;
@@ -200,9 +257,11 @@ export class GeminiLiveService {
           if (msg.turnComplete) this.onTurnCompleteCallbacks.forEach((cb) => cb());
           if (msg.toolCall) this.onToolCallCallbacks.forEach((cb) => cb(msg.toolCall));
           if (msg.userTranscript) {
-            this.onUserTranscriptCallbacks.forEach((cb) =>
-              cb({ text: msg.userTranscript, finished: !!msg.finished })
-            );
+            this.queueUserTranscript(String(msg.userTranscript), msg.finished === true);
+          }
+          if (msg.turnComplete) {
+            this.flushUserTranscript();
+            this.onTurnCompleteCallbacks.forEach((cb) => cb());
           }
         } catch (err) {
           console.error("Failed to parse Gemini Live message:", err);
@@ -395,11 +454,9 @@ export class GeminiLiveService {
       content.interimInputTranscription?.text;
 
     if (inputTranscript) {
-      this.onUserTranscriptCallbacks.forEach((cb) =>
-        cb({
-          text: String(inputTranscript),
-          finished: !!content.inputTranscription?.text,
-        })
+      this.queueUserTranscript(
+        String(inputTranscript),
+        content.inputTranscription?.finished === true
       );
     }
 
@@ -409,7 +466,14 @@ export class GeminiLiveService {
       );
     }
 
+    if (content.modelTurn?.parts?.length) {
+      // Model output means the user's turn has ended even if the transcript
+      // event itself did not carry a finished flag.
+      this.flushUserTranscript();
+    }
+
     if (content.turnComplete) {
+      this.flushUserTranscript();
       this.onTurnCompleteCallbacks.forEach((cb) => cb());
     }
   }
@@ -497,6 +561,7 @@ export class GeminiLiveService {
 
   public disconnect(): void {
     this.intentionalDisconnect = true;
+    this.clearUserTranscriptBuffer();
     this.reconnectPending = false;
     this.reconnectAttempts = 0;
     if (this.reconnectTimer !== null) {
