@@ -14,6 +14,8 @@ export interface LiveSessionConfig {
   thinkingLevel?: string;
   systemInstruction?: string;
   greeting?: string;
+  /** When true, Live is used only as realtime voice I/O. */
+  voiceOnly?: boolean;
 }
 
 export type LiveEventCallback<T> = (data: T) => void;
@@ -30,6 +32,8 @@ export class GeminiLiveService {
   private reconnectPending = false;
   private intentionalDisconnect = false;
   private sessionResumptionHandle: string | null = null;
+  private voiceOnly = true;
+  private voiceOutputActive = false;
 
   private onConnectCallbacks: Array<() => void> = [];
   private onDisconnectCallbacks: Array<() => void> = [];
@@ -175,6 +179,8 @@ export class GeminiLiveService {
         const voice = activeConfig?.voice || VOICE;
         const thinkingLevel = activeConfig?.thinkingLevel || THINKING_LEVEL;
         const systemInstruction = activeConfig?.systemInstruction;
+        this.voiceOnly = activeConfig?.voiceOnly !== false;
+        this.voiceOutputActive = false;
 
         if (isAndroidApp()) {
           // Android uses the explicitly requested Gemini 3.1 Flash Live Preview.
@@ -255,13 +261,16 @@ export class GeminiLiveService {
           if (msg.text) this.onTextChunkCallbacks.forEach((cb) => cb(msg.text));
           if (msg.interrupted) this.onInterruptedCallbacks.forEach((cb) => cb());
           if (msg.turnComplete) this.onTurnCompleteCallbacks.forEach((cb) => cb());
-          if (msg.toolCall) this.onToolCallCallbacks.forEach((cb) => cb(msg.toolCall));
+          if (msg.toolCall && !this.voiceOnly) this.onToolCallCallbacks.forEach((cb) => cb(msg.toolCall));
           if (msg.userTranscript) {
             this.queueUserTranscript(String(msg.userTranscript), msg.finished === true);
           }
           if (msg.turnComplete) {
             this.flushUserTranscript();
-            this.onTurnCompleteCallbacks.forEach((cb) => cb());
+            if (this.voiceOutputActive) {
+              this.voiceOutputActive = false;
+              this.onTurnCompleteCallbacks.forEach((cb) => cb());
+            }
           }
         } catch (err) {
           console.error("Failed to parse Gemini Live message:", err);
@@ -440,11 +449,11 @@ export class GeminiLiveService {
     // A single server event may contain multiple parts. Process all of them.
     for (const part of content.modelTurn?.parts || []) {
       const inlineData = part?.inlineData;
-      if (inlineData?.data) {
+      if (inlineData?.data && this.voiceOutputActive) {
         this.onAudioCallbacks.forEach((cb) => cb(String(inlineData.data)));
       }
 
-      if (typeof part?.text === "string" && part.text) {
+      if (typeof part?.text === "string" && part.text && this.voiceOutputActive) {
         this.onTextChunkCallbacks.forEach((cb) => cb(part.text));
       }
     }
@@ -460,7 +469,7 @@ export class GeminiLiveService {
       );
     }
 
-    if (content.outputTranscription?.text) {
+    if (content.outputTranscription?.text && this.voiceOutputActive) {
       this.onTextChunkCallbacks.forEach((cb) =>
         cb(String(content.outputTranscription.text))
       );
@@ -474,7 +483,10 @@ export class GeminiLiveService {
 
     if (content.turnComplete) {
       this.flushUserTranscript();
-      this.onTurnCompleteCallbacks.forEach((cb) => cb());
+      if (this.voiceOutputActive) {
+        this.voiceOutputActive = false;
+        this.onTurnCompleteCallbacks.forEach((cb) => cb());
+      }
     }
   }
 
@@ -518,12 +530,21 @@ export class GeminiLiveService {
 
   public sendText(text: string): void {
     if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-
     if (isAndroidApp()) {
-      // Gemini 3.1 uses realtimeInput for text during an active session.
       this.ws.send(JSON.stringify({ realtimeInput: { text } }));
     } else {
       this.ws.send(JSON.stringify({ type: "text", text }));
+    }
+  }
+
+  /** Speak only the manager's final answer through Gemini Live. */
+  public speakText(text: string): void {
+    if (!text.trim() || !this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.voiceOutputActive = true;
+    if (isAndroidApp()) {
+      this.ws.send(JSON.stringify({ type: "speak", text }));
+    } else {
+      this.ws.send(JSON.stringify({ type: "speak", text }));
     }
   }
 
@@ -561,6 +582,7 @@ export class GeminiLiveService {
 
   public disconnect(): void {
     this.intentionalDisconnect = true;
+    this.voiceOutputActive = false;
     this.clearUserTranscriptBuffer();
     this.reconnectPending = false;
     this.reconnectAttempts = 0;
@@ -580,6 +602,7 @@ export class GeminiLiveService {
 
     this.isConnected = false;
     this.isConnecting = false;
+    this.voiceOutputActive = false;
     this.setupReady = false;
     if (this.handshakeTimer !== null) {
       window.clearTimeout(this.handshakeTimer);
