@@ -25,14 +25,31 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+          cache: gradle
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
       - uses: android-actions/setup-android@v4
-      - run: npm install --no-audit --no-fund
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: jarvis-npm-${{ runner.os }}-${{ hashFiles('package.json') }}
+          restore-keys: |
+            jarvis-npm-${{ runner.os }}-
+      - run: npm install --prefer-offline --no-audit --no-fund
       - run: npm run build
       - run: npx cap add android
       - run: npx cap sync android
+      - name: Cache Android/Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: jarvis-gradle-${{ runner.os }}-${{ hashFiles('package.json', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            jarvis-gradle-${{ runner.os }}-
       - run: mkdir -p android/app/src/main/java/com/jarvis/ai
       - run: cp android-native/MyJarvisSpeechPlugin.java android/app/src/main/java/com/jarvis/ai/MyJarvisSpeechPlugin.java
       - run: cp android-native/MainActivity.java android/app/src/main/java/com/jarvis/ai/MainActivity.java
@@ -44,7 +61,7 @@ jobs:
               s=s.replace("<application", '    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <application', 1)
           open(p,"w").write(s)
           PY2
-      - run: cd android && ./gradlew assembleDebug --no-daemon --build-cache
+      - run: cd android && ./gradlew assembleDebug --no-daemon --build-cache --parallel
       - uses: actions/upload-artifact@v4
         with:
           name: JARVIS-debug-apk
