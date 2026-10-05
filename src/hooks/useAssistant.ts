@@ -388,6 +388,9 @@ export function useAssistant() {
       }
 
       if (finished) {
+        const requestAt = Date.now();
+        const requestPerf = performance.now();
+        let firstResponseAt: number | undefined;
         sessionService.recordActivity(true);
         sessionService.consumeReturnEvent();
 
@@ -439,9 +442,22 @@ export function useAssistant() {
             image: activeFrame ? { data: activeFrame.base64, mimeType: activeFrame.mimeType } : undefined,
             model: settingsRef.current.brainModel || CHAT_MODEL,
           }, (chunk) => {
+            if (!firstResponseAt) firstResponseAt = Date.now();
             reply += chunk;
+            const now = Date.now();
             setMessages((prev) => prev.map((m) => m.id === assistantMsgId ? {
-              ...m, content: reply, text: reply, status: "streaming", isStreaming: true,
+              ...m,
+              content: reply,
+              text: reply,
+              status: "streaming",
+              isStreaming: true,
+              timing: {
+                requestAt,
+                firstResponseAt,
+                timeToFirstMs: firstResponseAt ? Math.max(0, firstResponseAt - requestAt) : undefined,
+                completedAt: now,
+                totalMs: Math.max(0, Math.round(performance.now() - requestPerf)),
+              },
             } : m));
           }, async (toolCall) => {
             try {
@@ -456,8 +472,21 @@ export function useAssistant() {
             }
           });
 
+          const completedAt = Date.now();
+          const totalMs = Math.max(0, Math.round(performance.now() - requestPerf));
           setMessages((prev) => prev.map((m) => m.id === assistantMsgId ? {
-            ...m, content: reply, text: reply, status: "complete", isStreaming: false,
+            ...m,
+            content: reply,
+            text: reply,
+            status: "complete",
+            isStreaming: false,
+            timing: {
+              requestAt,
+              firstResponseAt,
+              completedAt,
+              timeToFirstMs: firstResponseAt ? Math.max(0, firstResponseAt - requestAt) : undefined,
+              totalMs,
+            },
           } : m));
 
           if (reply && settingsRef.current.voiceEnabled && geminiLive.connected) {
