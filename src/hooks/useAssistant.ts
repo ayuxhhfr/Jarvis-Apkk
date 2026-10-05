@@ -830,6 +830,7 @@ export function useAssistant() {
           })),
           context: combinedContext,
           image: image ? { data: image.data, mimeType: image.mimeType } : (activeFrame ? { data: activeFrame.base64, mimeType: activeFrame.mimeType } : undefined),
+          model: settingsRef.current.brainModel || CHAT_MODEL,
         }, (chunk) => {
           replyAccumulator += chunk;
           setMessages((prev) => prev.map((m) => m.id === assistantMsgId ? {
