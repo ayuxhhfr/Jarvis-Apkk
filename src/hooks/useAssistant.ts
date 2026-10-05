@@ -406,7 +406,10 @@ export function useAssistant() {
             else if (memoryIntent.type === "delete" && memoryIntent.target) await memoryService.deleteMemoryByPattern(memoryIntent.target);
             else if (memoryIntent.type === "clear") await memoryService.clearMemories();
           } else {
-            await learnImplicitMemory(clean, "voice_command");
+            // Memory learning must never sit on the critical response path.
+          // Quick local facts are saved synchronously inside memoryLearner;
+          // the Gemini classifier continues in the background.
+          void learnImplicitMemory(clean, "voice_command");
           }
 
           const screenIntent = screenShareService.parseScreenShareIntent(clean);
@@ -790,7 +793,9 @@ export function useAssistant() {
           console.warn("Error running memory intent:", err);
         }
       } else {
-        await learnImplicitMemory(trimmed, "inferred");
+        // Do not make every normal chat message wait for the memory classifier.
+        // The classifier is background-only; JARVIS should start answering immediately.
+        void learnImplicitMemory(trimmed, "inferred");
       }
 
       // 4. Retrieve relevant memory context for the current query
@@ -862,10 +867,19 @@ export function useAssistant() {
         await managerService.send({
           message: trimmed,
           systemInstruction: settingsRef.current.systemInstruction || JARVIS_SYSTEM_INSTRUCTION,
-          history: messagesRef.current.slice(-10).map((m) => ({
-            role: m.role === "user" || m.sender === "user" ? "user" : "model",
-            text: m.content || m.text || "",
-          })),
+          history: (() => {
+            const recent = messagesRef.current.slice(-8).map((m) => ({
+              role: (m.role === "user" || m.sender === "user" ? "user" : "model") as "user" | "model",
+              text: (m.content || m.text || "").slice(-1800),
+            }));
+            let chars = 0;
+            return recent.reverse().filter((item) => {
+              const size = item.text.length;
+              if (chars + size > 7000) return false;
+              chars += size;
+              return true;
+            }).reverse();
+          })(),
           context: combinedContext,
           image: image ? { data: image.data, mimeType: image.mimeType } : (activeFrame ? { data: activeFrame.base64, mimeType: activeFrame.mimeType } : undefined),
           model: settingsRef.current.brainModel || CHAT_MODEL,
