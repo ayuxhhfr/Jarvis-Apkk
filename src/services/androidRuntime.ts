@@ -133,6 +133,9 @@ export async function generateAndroidReply(
     if (remaining <= 0) throw Object.assign(new Error("Gemini request deadline exceeded."), { status: 503 });
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), Math.min(8000, remaining));
+    // Keep streamed text in scope for the timeout/error handler. If a timeout
+    // happens after useful output, return that partial answer instead of retrying.
+    let fullText = "";
     try {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:streamGenerateContent?alt=sse`,
@@ -164,7 +167,6 @@ export async function generateAndroidReply(
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      let fullText = "";
 
       try {
         while (true) {
