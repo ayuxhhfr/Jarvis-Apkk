@@ -10,7 +10,7 @@ interface JarvisSpeechPlugin {
 
 const JarvisSpeech = registerPlugin<JarvisSpeechPlugin>("MyJarvisSpeech");
 const API_KEY_STORAGE = "jarvis.android.geminiApiKey";
-const CHAT_MODEL = "gemini-3.8-flash";
+const CHAT_MODEL = "gemini-3.5-flash";
 
 export function isAndroidApp(): boolean {
   return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
@@ -114,7 +114,8 @@ export async function validateAndroidApiKey(key: string): Promise<void> {
 export async function generateAndroidReply(
   message: string,
   systemInstruction: string,
-  history: Array<{ role: "user" | "model"; text: string }> = []
+  history: Array<{ role: "user" | "model"; text: string }> = [],
+  model: string = CHAT_MODEL
 ): Promise<string> {
   const key = getAndroidApiKey();
   if (!key) throw new Error("Add your Gemini API key in Settings first.");
@@ -169,12 +170,12 @@ export async function generateAndroidReply(
     return status === 429 || status === 500 || status === 503;
   };
 
-  // 3.8 Flash stays the primary manager. Capacity spikes get proper backoff, then the
-  // reply falls through 3.7 and finally stable 2.5 Flash, so the user always gets an answer.
+  // The selected brain model is primary. Capacity spikes fall through newer stable
+  // 3.x models; do not depend on restricted 2.5 models for normal recovery.
   let lastError: any;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      return await request(CHAT_MODEL);
+      return await request(model);
     } catch (error: any) {
       lastError = error;
       if (!isBusy(error)) throw error;
@@ -182,7 +183,7 @@ export async function generateAndroidReply(
     }
   }
 
-  for (const fallbackModel of ["gemini-3.7-flash", "gemini-2.5-flash"]) {
+  for (const fallbackModel of ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"]) {
     try {
       return await request(fallbackModel);
     } catch (fallbackError: any) {
