@@ -657,15 +657,15 @@ async function startServer() {
     });
   });
 
-  // REST API: Gemini 3.8 JARVIS Manager.
-  // 3.8 owns reasoning and final answers. Gemini Live is voice I/O only.
+  // REST API: JARVIS Manager.
+  // The selected brain model owns reasoning and final answers. Gemini Live is voice I/O only.
   app.post("/api/gemini/manager", async (req, res) => {
     if (!apiKey) {
       res.status(500).json({ error: "GEMINI_API_KEY is not configured" });
       return;
     }
 
-    const { message, systemInstruction, history, context, image } = req.body;
+    const { message, systemInstruction, history, context, image, model } = req.body;
     if (!message) {
       res.status(400).json({ error: "Message is required" });
       return;
@@ -701,20 +701,31 @@ async function startServer() {
       }
       contents.push({ role: "user", parts: userParts });
 
+      const allowedBrainModels = new Set([
+        "gemini-3.5-flash",
+        "gemini-3.8-flash",
+        "gemini-3.7-flash",
+        "gemini-3.6-flash",
+        "gemini-3.1-pro-preview",
+      ]);
+      const requestedBrainModel = typeof model === "string" && allowedBrainModels.has(model)
+        ? model
+        : CHAT_MODEL;
+
       const managerConfig = {
         systemInstruction:
           (systemInstruction || JARVIS_SYSTEM_INSTRUCTION) +
-          "\n\n[ARCHITECTURE] Gemini 3.8 Flash is the authoritative JARVIS manager. It owns reasoning, context, decisions and the final answer. Gemini 3.1 Flash Live Preview is only the realtime voice I/O engine; never treat its independent model output as the authoritative answer. Application actions such as browser, screen-share and memory commands are executed by the JARVIS client orchestration layer; do not emit function calls from this manager endpoint.",
+          "\n\n[ARCHITECTURE] The selected JARVIS brain model is the authoritative manager. It owns reasoning, context, decisions and the final answer. Gemini 3.1 Flash Live Preview is only the realtime voice I/O engine; never treat its independent model output as a second authoritative answer. Application actions such as browser, screen-share and memory commands are executed by the JARVIS client orchestration layer; do not emit function calls from this manager endpoint.",
         // @ts-ignore
         thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
       };
 
       let streamResponse: any;
-      let managerModel = CHAT_MODEL;
+      let managerModel = requestedBrainModel;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           streamResponse = await ai.models.generateContentStream({
-            model: CHAT_MODEL,
+            model: requestedBrainModel,
             contents,
             config: managerConfig,
           });
