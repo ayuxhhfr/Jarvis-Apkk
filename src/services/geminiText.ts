@@ -99,7 +99,7 @@ export class GeminiTextService {
     return fullText;
   }
 
-  public async classifyMemoryCandidate(message: string, existingMemories: string[] = []): Promise<MemoryClassification> {
+  public async classifyMemoryCandidate(message: string, existingMemories: string[] = [], backgroundModel: string = "auto"): Promise<MemoryClassification> {
     const prompt = message.trim();
     if (!prompt) return { shouldRemember: false, memories: [], reason: "empty" };
 
@@ -141,7 +141,8 @@ If nothing durable exists, return {"shouldRemember":false,"memories":[],"reason"
     // Chain: lite model -> stable 2.5 Flash. Each request has a hard timeout so a busy
     // model cannot hang memory saving.
     const CLASSIFIER_TIMEOUT_MS = 8000;
-    const ANDROID_CHAIN = [MEMORY_MODEL, "gemini-2.5-flash"];
+    const selectedBackgroundModel = backgroundModel && backgroundModel !== "auto" ? backgroundModel : MEMORY_MODEL;
+    const ANDROID_CHAIN = [selectedBackgroundModel, "gemini-3.5-flash-lite"];
 
     const fetchWithTimeout = async (url: string, init: RequestInit): Promise<Response> => {
       const controller = new AbortController();
@@ -190,7 +191,7 @@ If nothing durable exists, return {"shouldRemember":false,"memories":[],"reason"
     const runServer = async (): Promise<MemoryClassification> => {
       const res = await fetchWithTimeout("/api/gemini/memory-classify", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userPrompt, systemInstruction: system }),
+        body: JSON.stringify({ message: userPrompt, systemInstruction: system, model: selectedBackgroundModel }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
