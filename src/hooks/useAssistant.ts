@@ -480,8 +480,13 @@ export function useAssistant() {
             setState("idle");
           }
         } catch (err) {
+          const message = err instanceof Error ? err.message : "Failed to get response from JARVIS manager";
           console.warn("Manager voice turn failed:", err);
+          setMessages((prev) => prev.filter((m) => m.id !== assistantMsgId));
+          setActiveError(message);
           setState("idle");
+          stopPlayback();
+          setAssistantSpeaking(false);
         } finally {
           currentUserIdRef.current = null;
         }
