@@ -126,13 +126,18 @@ export async function generateAndroidReply(
     { role: "user", parts: [{ text: message }] },
   ];
 
-  const overallDeadline = Date.now() + 15000;
+  // Keep a generous hard ceiling so a slow mobile/network hop never causes
+  // the fallback chain to eat the entire request. Fast responses still stream
+  // immediately; this is only a safety ceiling.
+  const overallDeadline = Date.now() + 25000;
 
   const requestStream = async (selectedModel: string): Promise<string> => {
     const remaining = overallDeadline - Date.now();
     if (remaining <= 0) throw Object.assign(new Error("Gemini request deadline exceeded."), { status: 503 });
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), Math.min(8000, remaining));
+    // Give the selected brain enough time for a cold mobile/network request.
+    // We no longer abort at an artificial 8s boundary.
+    const timer = setTimeout(() => controller.abort(), Math.min(20000, remaining));
     // Keep streamed text in scope for the timeout/error handler. If a timeout
     // happens after useful output, return that partial answer instead of retrying.
     let fullText = "";
@@ -223,6 +228,10 @@ export async function generateAndroidReply(
   // Android previously used non-streaming generateContent, so the UI received
   // absolutely nothing until the entire answer was finished. SSE streaming
   // now exposes the first response chunk immediately.
+  //
+  // Do NOT burn the latency budget by timing out one healthy 3.5 request and
+  // immediately trying several other models. Fallbacks are for explicit
+  // provider-busy responses (429/5xx), not normal network latency.
   let lastError: any;
   const modelsToTry = [model, "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"]
     .filter((value, index, list) => value && list.indexOf(value) === index);
@@ -233,7 +242,10 @@ export async function generateAndroidReply(
       return await requestStream(candidate);
     } catch (error: any) {
       lastError = error;
-      if (!isBusy(error)) throw error;
+      // A timeout is a real request failure, not evidence that every model is
+      // busy. Do not immediately fan out to multiple models and make the user
+      // wait through a chain of doomed requests.
+      if (!isBusy(error) || error?.status === 503 && error?.message === "Gemini request timed out.") throw error;
     }
   }
 
