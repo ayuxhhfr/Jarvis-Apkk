@@ -1,7 +1,7 @@
 /**
  * JARVIS Manager Service.
  *
- * Gemini 3.8 Flash is the authoritative reasoning/orchestration layer.
+ * The selected brain model is the authoritative reasoning/orchestration layer.
  * Gemini Live is deliberately kept out of this service: Live is only the
  * realtime voice I/O engine.
  */
@@ -15,6 +15,7 @@ export interface ManagerRequest {
   history?: Array<{ role: "user" | "model"; text: string }>;
   context?: string;
   image?: { data: string; mimeType?: string };
+  model?: string;
 }
 
 export class ManagerService {
@@ -24,8 +25,8 @@ export class ManagerService {
     onToolCall?: (toolCall: { name: string; args: any }) => void
   ): Promise<string> {
     // Android APK does not host the web server at a relative /api path.
-    // Use the same direct Gemini 3.8 REST path used by the Android runtime.
-    // Live 3.1 remains voice I/O only; 3.8 still owns the answer.
+    // Use the same direct REST path used by the Android runtime.
+    // Live 3.1 remains voice I/O only; the selected brain model owns the answer.
     if (isAndroidApp()) {
       // Context (memory, time, browser) belongs in the system instruction so the model
       // treats it as standing knowledge instead of part of the user's message.
@@ -48,7 +49,7 @@ export class ManagerService {
         history: options.history || [],
         context: options.context || "",
         image: options.image,
-        model: CHAT_MODEL,
+        model: options.model || CHAT_MODEL,
       }),
     });
 
