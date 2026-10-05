@@ -233,6 +233,7 @@ export function useAssistant() {
         // Cleanly disconnect and reconnect live session on voice/profile change to guarantee update on server
         if (
           newSettings.voice !== undefined ||
+          newSettings.liveModel !== undefined ||
           newSettings.systemInstruction !== undefined ||
           newSettings.selectedProfileId !== undefined
         ) {
