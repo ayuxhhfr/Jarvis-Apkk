@@ -420,7 +420,9 @@ async function startServer() {
               // Output transcription is only exposed for the manager answer that
               // was explicitly requested through the speak channel.
               const outText = message.serverContent?.outputTranscription?.text;
-              if (outText && voiceOutputActive) clientWs.send(JSON.stringify({ text: outText }));
+              // Voice-only Live output is audio-only for the client; the 3.5 brain response
+              // is already rendered in chat, so forwarding Live text would duplicate it.
+              if (outText && voiceOutputActive && !voiceOnly) clientWs.send(JSON.stringify({ text: outText }));
 
               // Input audio transcription
               const inText = message.serverContent?.inputTranscription?.text;
