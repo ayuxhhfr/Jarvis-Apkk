@@ -158,7 +158,7 @@ export class GeminiLiveService {
             const state = this.ws?.readyState;
             console.error("[GeminiLive Android] setupComplete not received within 5s", {
               readyState: state,
-              model: "gemini-3.1-flash-live-preview",
+              model: androidModel,
             });
             this.emitError(
               "Gemini Live handshake timed out after 5s. WebSocket opened, but Google did not return setupComplete."
@@ -185,7 +185,7 @@ export class GeminiLiveService {
         if (isAndroidApp()) {
           // Android uses the explicitly requested Gemini 3.1 Flash Live Preview.
           // Keep minimal thinking for the lowest-latency voice interaction.
-          const androidModel = "gemini-3.1-flash-live-preview";
+          const androidModel = activeConfig?.model || LIVE_MODEL;
           const setup: any = {
             model: `models/${androidModel}`,
             generationConfig: {
