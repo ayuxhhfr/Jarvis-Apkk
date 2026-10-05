@@ -4,8 +4,8 @@
  */
 
 // JARVIS brain/manager. All normal reasoning, orchestration, tools and final answers are owned by this model.
-export const CHAT_MODEL = "gemini-3.8-flash";
-export const CHAT_MODEL_NAME = "Gemini 3.8 Flash";
+export const CHAT_MODEL = "gemini-3.5-flash";
+export const CHAT_MODEL_NAME = "Gemini 3.5 Flash";
 
 // Lightweight model used only by the background long-term-memory classifier.
 // Keeps the primary chat/Live models untouched while reducing memory-classification cost/quota usage.
