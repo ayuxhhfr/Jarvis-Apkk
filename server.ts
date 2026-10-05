@@ -737,10 +737,15 @@ async function startServer() {
           if (status !== 429 && status !== 503 || attempt === 2) {
             if (attempt === 2 && (status === 429 || status === 503)) {
               managerModel = "gemini-3.7-flash";
+              const fallbackConfig = {
+                ...managerConfig,
+                // @ts-ignore
+                thinkingConfig: { thinkingLevel: "low" },
+              };
               streamResponse = await ai.models.generateContentStream({
                 model: managerModel,
                 contents,
-                config: managerConfig,
+                config: fallbackConfig,
               });
               break;
             }
