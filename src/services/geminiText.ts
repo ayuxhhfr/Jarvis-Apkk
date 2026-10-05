@@ -137,33 +137,58 @@ If nothing durable exists, return {"shouldRemember":false,"memories":[],"reason"
     const stored = existingMemories.slice(0, 40);
     const userPrompt = "USER MESSAGE:\n" + prompt + (stored.length ? "\n\nALREADY STORED:\n" + stored.map((m) => "- " + m).join("\n") : "");
 
-    const run = async (): Promise<MemoryClassification> => {
-      if (isAndroidApp()) {
-        const key = getAndroidApiKey().trim();
-        if (!key) throw new Error("no Android Gemini key");
-        const requestModel = async (model: string): Promise<MemoryClassification> => {
-          const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-            body: JSON.stringify({
-              systemInstruction: { parts: [{ text: system }] },
-              contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-              generationConfig: { responseMimeType: "application/json", temperature: 0 },
-            }),
-          });
-          if (!res.ok) throw new Error(`Direct memory classifier HTTP ${res.status} for ${model}`);
-          const data = await res.json();
-          const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("") || "";
-          return normalizeClassification(text);
-        };
-        try {
-          return await requestModel(MEMORY_MODEL);
-        } catch (primaryErr) {
-          console.warn("[Memory] Primary 2.5 Flash-Lite unavailable; falling back to chat model.", primaryErr);
-          return await requestModel("gemini-3.8-flash");
+    // The classifier must never depend on the (often overloaded) chat/manager model.
+    // Chain: lite model -> stable 2.5 Flash. Each request has a hard timeout so a busy
+    // model cannot hang memory saving.
+    const CLASSIFIER_TIMEOUT_MS = 8000;
+    const ANDROID_CHAIN = [MEMORY_MODEL, "gemini-2.5-flash"];
+
+    const fetchWithTimeout = async (url: string, init: RequestInit): Promise<Response> => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), CLASSIFIER_TIMEOUT_MS);
+      try { return await fetch(url, { ...init, signal: controller.signal }); }
+      finally { clearTimeout(timer); }
+    };
+
+    const runAndroid = async (): Promise<MemoryClassification> => {
+      const key = getAndroidApiKey().trim();
+      if (!key) throw new Error("no Android Gemini key");
+      let lastErr: any;
+      for (const model of ANDROID_CHAIN) {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const res = await fetchWithTimeout("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+              body: JSON.stringify({
+                systemInstruction: { parts: [{ text: system }] },
+                contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+                generationConfig: { responseMimeType: "application/json", temperature: 0 },
+              }),
+            });
+            if (!res.ok) {
+              const err: any = new Error(`Direct memory classifier HTTP ${res.status} for ${model}`);
+              err.status = res.status;
+              throw err;
+            }
+            const data = await res.json();
+            const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("") || "";
+            return normalizeClassification(text);
+          } catch (err: any) {
+            lastErr = err;
+            const status = Number(err?.status || 0);
+            const transient = err?.name === "AbortError" || status === 429 || status === 503 || status === 500;
+            // Non-transient error (bad key, bad request, bad JSON): go to next model immediately.
+            if (!transient) break;
+            if (attempt === 0) await new Promise((r) => setTimeout(r, 700));
+          }
         }
       }
-      const res = await fetch("/api/gemini/memory-classify", {
+      throw lastErr || new Error("memory classifier unavailable");
+    };
+
+    const runServer = async (): Promise<MemoryClassification> => {
+      const res = await fetchWithTimeout("/api/gemini/memory-classify", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: userPrompt, systemInstruction: system }),
       });
@@ -174,13 +199,11 @@ If nothing durable exists, return {"shouldRemember":false,"memories":[],"reason"
       return normalizeClassification(JSON.stringify(await res.json()));
     };
 
-    try { return await run(); }
-    catch (firstErr) {
-      try { await new Promise((r) => setTimeout(r, 600)); return await run(); }
-      catch (secondErr) {
-        console.warn("[Memory] Gemini classifier failed:", firstErr, secondErr);
-        return { shouldRemember: false, memories: [], reason: "classifier unavailable", failed: true };
-      }
+    try {
+      return isAndroidApp() ? await runAndroid() : await runServer();
+    } catch (err) {
+      console.warn("[Memory] Gemini classifier failed:", err);
+      return { shouldRemember: false, memories: [], reason: "classifier unavailable", failed: true };
     }
   }
 
