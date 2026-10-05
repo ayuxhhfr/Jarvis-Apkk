@@ -129,7 +129,8 @@ export async function generateAndroidReply(
   const overallDeadline = Date.now() + 15000;
 
   const requestStream = async (selectedModel: string): Promise<string> => {
-    const remaining = Math.max(1000, overallDeadline - Date.now());
+    const remaining = overallDeadline - Date.now();
+    if (remaining <= 0) throw Object.assign(new Error("Gemini request deadline exceeded."), { status: 503 });
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), Math.min(8000, remaining));
     try {
@@ -199,6 +200,9 @@ export async function generateAndroidReply(
       return finalText;
     } catch (err: any) {
       if (err?.name === "AbortError") {
+        // If useful text already streamed, keep it instead of falling back and
+        // duplicating the partial answer or wasting the remaining latency budget.
+        if (fullText.trim()) return fullText.trim();
         const timeoutError: any = new Error("Gemini request timed out.");
         timeoutError.status = 503;
         throw timeoutError;
