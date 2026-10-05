@@ -51,6 +51,16 @@ function writeQueue(queue: PendingItem[]): void {
 class MemoryLearner {
   private draining = false;
 
+  private getBackgroundModel(): string {
+    try {
+      const raw = window.localStorage.getItem("jarvis_assistant_settings");
+      const settings = raw ? JSON.parse(raw) : {};
+      return typeof settings?.backgroundModel === "string" ? settings.backgroundModel : "auto";
+    } catch {
+      return "auto";
+    }
+  }
+
   /**
    * Learn from a user utterance.
    * Resolves as soon as the instant (rule-based) saves are done, so the very next
@@ -81,7 +91,7 @@ class MemoryLearner {
       const existing = (await memoryService.getMemories({ activeOnly: true }))
         .slice(0, 40)
         .map((m) => m.content);
-      const decision = await geminiText.classifyMemoryCandidate(text, existing);
+      const decision = await geminiText.classifyMemoryCandidate(text, existing, this.getBackgroundModel());
 
       if (decision.failed) {
         // A short, fully handled identity sentence does not need another attempt.
@@ -139,7 +149,7 @@ class MemoryLearner {
         const existing = (await memoryService.getMemories({ activeOnly: true }))
           .slice(0, 40)
           .map((m) => m.content);
-        const decision = await geminiText.classifyMemoryCandidate(item.text, existing);
+        const decision = await geminiText.classifyMemoryCandidate(item.text, existing, this.getBackgroundModel());
 
         if (decision.failed) {
           item.tries += 1;
