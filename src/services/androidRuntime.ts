@@ -124,37 +124,57 @@ export async function generateAndroidReply(
     { role: "user", parts: [{ text: message }] },
   ];
 
-  // Gemini 3.8 Flash can temporarily return 429/503 during demand spikes.
-  // Retry the SAME authoritative manager model instead of silently switching
-  // the brain to another model.
-  let res: Response | null = null;
-  let lastStatus = 0;
+  const request = async (model: string): Promise<string> => {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemInstruction }] },
+          contents,
+          generationConfig: { temperature: 0.7, maxOutputTokens: 800 },
+        }),
+      }
+    );
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const error: any = new Error(data?.error?.message || `Gemini request failed (${res.status}).`);
+      error.status = res.status;
+      throw error;
+    }
+
+    const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("").trim();
+    if (!text) throw new Error("Gemini returned an empty response.");
+    return text;
+  };
+
+  // 3.8 Flash remains the authoritative Android manager. Temporary capacity
+  // spikes are retried before using 3.7 Flash as an emergency model fallback.
+  let lastError: any;
   for (let attempt = 0; attempt < 3; attempt++) {
-    res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${CHAT_MODEL}:generateContent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: systemInstruction }] },
-        contents,
-        generationConfig: { temperature: 0.7, maxOutputTokens: 800 },
-      }),
-    });
-
-    lastStatus = res.status;
-    if (res.ok || ![429, 500, 502, 503, 504].includes(res.status) || attempt === 2) break;
-
-    // 1.5s, 3s between retries; keep the UI responsive while Google recovers.
-    await new Promise((resolve) => window.setTimeout(resolve, 1500 * (attempt + 1)));
+    try {
+      return await request(CHAT_MODEL);
+    } catch (error: any) {
+      lastError = error;
+      const status = Number(error?.status || 0);
+      if (status !== 429 && status !== 503) throw error;
+      if (attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+      }
+    }
   }
 
-  if (!res) throw new Error("Gemini 3.8 request could not be started.");
-
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.error?.message || `Gemini request failed (${res.status}).`);
-
-  const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("").trim();
-  if (!text) throw new Error("Gemini returned an empty response.");
-  return text;
+  // Only reached when 3.8 is temporarily capacity/rate limited.
+  try {
+    return await request("gemini-3.7-flash");
+  } catch (fallbackError: any) {
+    const original = lastError?.message || "Gemini 3.8 Flash is temporarily unavailable.";
+    throw new Error(
+      `Gemini 3.8 Flash is temporarily busy. Emergency 3.7 fallback also failed: ${fallbackError?.message || original}`
+    );
+  }
 }
 
 export async function listenAndroid(
