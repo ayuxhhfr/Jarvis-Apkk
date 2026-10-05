@@ -41,8 +41,8 @@ jobs:
           p="android/app/src/main/AndroidManifest.xml"
           s=open(p).read()
           if "android.permission.RECORD_AUDIO" not in s:
-              s=s.replace("<application", "    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <application", 1)
+              s=s.replace("<application", '    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <application', 1)
           open(p,"w").write(s)
           PY2
       - run: cd android && ./gradlew assembleDebug --no-daemon --build-cache
