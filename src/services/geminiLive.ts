@@ -262,7 +262,7 @@ export class GeminiLiveService {
           // from managerService; never mirror Live output text into chat.
           if (msg.text && !this.voiceOnly) this.onTextChunkCallbacks.forEach((cb) => cb(msg.text));
           if (msg.interrupted) this.onInterruptedCallbacks.forEach((cb) => cb());
-          if (msg.turnComplete) this.onTurnCompleteCallbacks.forEach((cb) => cb());
+          if (msg.turnComplete && !this.voiceOnly) this.onTurnCompleteCallbacks.forEach((cb) => cb());
           if (msg.toolCall && !this.voiceOnly) this.onToolCallCallbacks.forEach((cb) => cb(msg.toolCall));
           if (msg.userTranscript) {
             this.queueUserTranscript(String(msg.userTranscript), msg.finished === true);
