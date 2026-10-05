@@ -83,7 +83,11 @@ class MemoryLearner {
       }
     }
 
-    void this.learnWithAI(clean, source, quickSaved);
+    // Give the authoritative chat request a head start. Memory classification is
+    // intentionally lower priority and must never compete with the first response token.
+    window.setTimeout(() => {
+      void this.learnWithAI(clean, source, quickSaved);
+    }, 1200);
   }
 
   private async learnWithAI(text: string, source: LearnSource, quickSaved: number): Promise<void> {
