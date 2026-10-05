@@ -124,15 +124,30 @@ export async function generateAndroidReply(
     { role: "user", parts: [{ text: message }] },
   ];
 
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${CHAT_MODEL}:generateContent`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-    body: JSON.stringify({
-      system_instruction: { parts: [{ text: systemInstruction }] },
-      contents,
-      generationConfig: { temperature: 0.7, maxOutputTokens: 800 },
-    }),
-  });
+  // Gemini 3.8 Flash can temporarily return 429/503 during demand spikes.
+  // Retry the SAME authoritative manager model instead of silently switching
+  // the brain to another model.
+  let res: Response | null = null;
+  let lastStatus = 0;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${CHAT_MODEL}:generateContent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: systemInstruction }] },
+        contents,
+        generationConfig: { temperature: 0.7, maxOutputTokens: 800 },
+      }),
+    });
+
+    lastStatus = res.status;
+    if (res.ok || ![429, 500, 502, 503, 504].includes(res.status) || attempt === 2) break;
+
+    // 1.5s, 3s between retries; keep the UI responsive while Google recovers.
+    await new Promise((resolve) => window.setTimeout(resolve, 1500 * (attempt + 1)));
+  }
+
+  if (!res) throw new Error("Gemini 3.8 request could not be started.");
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.error?.message || `Gemini request failed (${res.status}).`);
