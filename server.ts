@@ -779,7 +779,7 @@ async function startServer() {
       return;
     }
 
-    const { message, systemInstruction } = req.body;
+    const { message, systemInstruction, model } = req.body;
     if (!message) {
       res.status(400).json({ error: "Message is required" });
       return;
@@ -807,12 +807,15 @@ async function startServer() {
         return result;
       };
 
+      const allowedMemoryModels = new Set(["gemini-2.5-flash-lite", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]);
+      const selectedMemoryModel = typeof model === "string" && allowedMemoryModels.has(model) ? model : MEMORY_MODEL;
+
       let result: any;
       try {
-        result = await runClassifier(MEMORY_MODEL);
+        result = await runClassifier(selectedMemoryModel);
       } catch (primaryErr) {
-        console.warn("Primary memory classifier failed; falling back to stable 2.5 Flash:", primaryErr);
-        result = await runClassifier("gemini-2.5-flash");
+        console.warn("Primary memory classifier failed; falling back to Gemini 3.5 Flash-Lite:", primaryErr);
+        result = await runClassifier("gemini-3.5-flash-lite");
       }
 
       res.json(result);
