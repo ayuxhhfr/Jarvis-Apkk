@@ -22,7 +22,7 @@ import {
 import { AssistantSettings, ConnectionStatus } from "../types/assistant";
 import { MemoryItem } from "../types/memory";
 import { AVAILABLE_VOICES } from "../config/voiceConfig";
-import { LIVE_MODEL, LIVE_MODEL_NAME, THINKING_LEVEL } from "../config/modelConfig";
+import { CHAT_MODEL, CHAT_MODEL_NAME, LIVE_MODEL, LIVE_MODEL_NAME, THINKING_LEVEL } from "../config/modelConfig";
 import { JARVIS_SYSTEM_INSTRUCTION } from "../config/jarvisConfig";
 import { ASSISTANT_PROFILES } from "../config/assistantProfiles";
 import { memoryService } from "../services/memoryService";
@@ -50,6 +50,9 @@ export const Settings: React.FC<SettingsProps> = ({
   );
   const [assistantName, setAssistantName] = useState(settings.assistantName);
   const [voice, setVoice] = useState(settings.voice);
+  const [liveModel, setLiveModel] = useState(settings.liveModel || LIVE_MODEL);
+  const [brainModel, setBrainModel] = useState(settings.brainModel || CHAT_MODEL);
+  const [backgroundModel, setBackgroundModel] = useState(settings.backgroundModel || "auto");
   const [voiceEnabled, setVoiceEnabled] = useState(settings.voiceEnabled);
   const [systemInstruction, setSystemInstruction] = useState(settings.systemInstruction);
   const [savedNotice, setSavedNotice] = useState(false);
@@ -63,6 +66,9 @@ export const Settings: React.FC<SettingsProps> = ({
       setSelectedProfileId(settings.selectedProfileId || (settings.voice === "Aoede" ? "ira" : "jarvis"));
       setAssistantName(settings.assistantName);
       setVoice(settings.voice);
+      setLiveModel(settings.liveModel || LIVE_MODEL);
+      setBrainModel(settings.brainModel || CHAT_MODEL);
+      setBackgroundModel(settings.backgroundModel || "auto");
       setVoiceEnabled(settings.voiceEnabled);
       setSystemInstruction(settings.systemInstruction);
       setAndroidApiKeyState(getAndroidApiKey());
@@ -160,6 +166,9 @@ export const Settings: React.FC<SettingsProps> = ({
       selectedProfileId,
       assistantName,
       voice,
+      liveModel,
+      brainModel,
+      backgroundModel,
       voiceEnabled,
       systemInstruction,
     });
@@ -266,22 +275,65 @@ export const Settings: React.FC<SettingsProps> = ({
             {apiKeyStatus && <div className={`text-[11px] ${apiKeyStatus === "API key verified" ? "text-[#00ffaa]" : "text-red-400"}`}>{apiKeyStatus}</div>}
           </div>
 
-          {/* Model Specification (Strictly Locked to Required Model) */}
-          <div className="space-y-2">
+          {/* AI Model Routing */}
+          <div className="space-y-3">
             <div className="flex items-center justify-between">
               <label className="text-xs font-mono uppercase text-neutral-400 tracking-wider">
-                Live Model
+                AI Models
               </label>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#00ffaa]/10 text-[#00ffaa] border border-[#00ffaa]/20">
-                Exact Configuration
+                Default Routing
               </span>
             </div>
-            <div className="p-3 rounded-xl bg-[#12161a] border border-white/[0.08] text-xs font-mono space-y-1">
-              <div className="text-white font-medium">{LIVE_MODEL_NAME}</div>
-              <div className="text-neutral-400 text-[11px]">{LIVE_MODEL}</div>
-              <div className="text-neutral-500 text-[10px] pt-1 border-t border-white/[0.04]">
-                Thinking Level: <span className="text-[#00ffaa]">{THINKING_LEVEL}</span>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="p-3 rounded-xl bg-[#12161a] border border-white/[0.08] space-y-2">
+                <div className="text-[10px] font-mono uppercase text-neutral-500">Brain</div>
+                <select
+                  value={brainModel}
+                  onChange={(e) => setBrainModel(e.target.value)}
+                  className="w-full px-2.5 py-2 rounded-lg bg-[#0b0e11] border border-white/[0.08] focus:border-[#00ffaa]/60 focus:outline-none text-white text-xs"
+                >
+                  <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+                  <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
+                  <option value="gemini-3.7-flash">Gemini 3.7 Flash</option>
+                  <option value="gemini-3.6-flash">Gemini 3.6 Flash</option>
+                  <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Preview)</option>
+                </select>
+                <div className="text-[10px] text-neutral-500">Reasoning, conversation & decisions</div>
               </div>
+
+              <div className="p-3 rounded-xl bg-[#12161a] border border-white/[0.08] space-y-2">
+                <div className="text-[10px] font-mono uppercase text-neutral-500">Voice</div>
+                <select
+                  value={liveModel}
+                  onChange={(e) => setLiveModel(e.target.value)}
+                  className="w-full px-2.5 py-2 rounded-lg bg-[#0b0e11] border border-white/[0.08] focus:border-[#00ffaa]/60 focus:outline-none text-white text-xs"
+                >
+                  <option value="gemini-3.1-flash-live-preview">Gemini 3.1 Flash Live Preview</option>
+                  <option value="gemini-3.8-live">Gemini 3.8 Live</option>
+                </select>
+                <div className="text-[10px] text-neutral-500">Realtime voice input/output</div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-[#12161a] border border-white/[0.08] space-y-2">
+                <div className="text-[10px] font-mono uppercase text-neutral-500">Background</div>
+                <select
+                  value={backgroundModel}
+                  onChange={(e) => setBackgroundModel(e.target.value)}
+                  className="w-full px-2.5 py-2 rounded-lg bg-[#0b0e11] border border-white/[0.08] focus:border-[#00ffaa]/60 focus:outline-none text-white text-xs"
+                >
+                  <option value="auto">Auto</option>
+                  <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option>
+                  <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</option>
+                </select>
+                <div className="text-[10px] text-neutral-500">Memory & background tasks</div>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-[#12161a] border border-white/[0.08] text-[11px] font-mono">
+              <div className="text-white font-medium">{CHAT_MODEL_NAME} brain default</div>
+              <div className="text-neutral-500 mt-1">Voice default: {LIVE_MODEL_NAME} · Thinking: {THINKING_LEVEL}</div>
             </div>
           </div>
 
