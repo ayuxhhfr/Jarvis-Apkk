@@ -798,8 +798,8 @@ async function startServer() {
       try {
         result = await runClassifier(MEMORY_MODEL);
       } catch (primaryErr) {
-        console.warn("Primary memory classifier failed; falling back to chat model:", primaryErr);
-        result = await runClassifier("gemini-3.8-flash");
+        console.warn("Primary memory classifier failed; falling back to stable 2.5 Flash:", primaryErr);
+        result = await runClassifier("gemini-2.5-flash");
       }
 
       res.json(result);
