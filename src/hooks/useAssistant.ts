@@ -10,7 +10,7 @@ import { AssistantState, AssistantSettings, ConnectionStatus } from "../types/as
 import { ChatMessage } from "../types/message";
 import { ScreenShareStatus } from "../types/screenShare";
 import { JARVIS_SYSTEM_INSTRUCTION } from "../config/jarvisConfig";
-import { LIVE_MODEL } from "../config/modelConfig";
+import { CHAT_MODEL, LIVE_MODEL } from "../config/modelConfig";
 import { DEFAULT_VOICE } from "../config/voiceConfig";
 import { ASSISTANT_PROFILES, DEFAULT_PROFILE_ID } from "../config/assistantProfiles";
 import { useGeminiLive } from "./useGeminiLive";
@@ -58,6 +58,8 @@ export function useAssistant() {
             voice: "Aoede",
             voiceEnabled: true,
             liveModel: LIVE_MODEL,
+            brainModel: CHAT_MODEL,
+            backgroundModel: "auto",
             thinkingLevel: "minimal",
             systemInstruction: ASSISTANT_PROFILES.ira.systemInstruction,
             selectedProfileId: "ira",
@@ -69,6 +71,8 @@ export function useAssistant() {
           voice: DEFAULT_VOICE,
           voiceEnabled: true,
           liveModel: LIVE_MODEL,
+          brainModel: CHAT_MODEL,
+          backgroundModel: "auto",
           thinkingLevel: "minimal",
           systemInstruction: JARVIS_SYSTEM_INSTRUCTION,
           selectedProfileId: "jarvis",
@@ -83,6 +87,8 @@ export function useAssistant() {
       voice: DEFAULT_VOICE,
       voiceEnabled: true,
       liveModel: LIVE_MODEL,
+      brainModel: CHAT_MODEL,
+      backgroundModel: "auto",
       thinkingLevel: "minimal",
       systemInstruction: JARVIS_SYSTEM_INSTRUCTION,
       selectedProfileId: "jarvis",
@@ -430,6 +436,7 @@ export function useAssistant() {
             })),
             context: combinedContext,
             image: activeFrame ? { data: activeFrame.base64, mimeType: activeFrame.mimeType } : undefined,
+            model: settingsRef.current.brainModel || CHAT_MODEL,
           }, (chunk) => {
             reply += chunk;
             setMessages((prev) => prev.map((m) => m.id === assistantMsgId ? {
