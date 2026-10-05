@@ -24,7 +24,14 @@ export const Message: React.FC<MessageProps> = ({ message }) => {
   const formattedTime = new Date(message.timestamp).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
+    second: "2-digit",
+    fractionalSecondDigits: 3,
   });
+
+  const timing = message.timing;
+  const timingLine = timing?.totalMs !== undefined
+    ? `REQ ${new Date(timing.requestAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3 })} → FIRST ${timing.firstResponseAt ? new Date(timing.firstResponseAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3 }) : "—"} → DONE ${timing.completedAt ? new Date(timing.completedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3 }) : "—"} · TTFT ${timing.timeToFirstMs ?? "—"}ms · TOTAL ${timing.totalMs}ms`
+    : undefined;
 
   return (
     <div
@@ -86,6 +93,11 @@ export const Message: React.FC<MessageProps> = ({ message }) => {
         >
           {message.isVoice && <Volume2 className="w-2.5 h-2.5 opacity-60" />}
           <span>{formattedTime}</span>
+          {timingLine && (
+            <span className="block w-full basis-full text-[8px] leading-tight text-neutral-600 mt-0.5 break-all" title="Request / first response / completion timestamps and latency in milliseconds">
+              {timingLine}
+            </span>
+          )}
           {isInterrupted && (
             <span className="text-neutral-500 italic ml-1">(interrupted)</span>
           )}
