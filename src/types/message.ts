@@ -20,4 +20,13 @@ export interface ChatMessage {
     data: string;
     mimeType?: string;
   };
+
+  /** Precise request/response timing for latency diagnostics. All durations are milliseconds. */
+  timing?: {
+    requestAt: number;
+    firstResponseAt?: number;
+    completedAt?: number;
+    timeToFirstMs?: number;
+    totalMs?: number;
+  };
 }
