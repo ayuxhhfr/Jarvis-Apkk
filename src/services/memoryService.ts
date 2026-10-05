@@ -114,30 +114,38 @@ export class MemoryService {
     catch (err) { console.error("JARVIS MemoryService: Error clearing memories:", err); return false; }
   }
 
-  public async getRelevantContext(query: string, maxItems = 4): Promise<string> {
+  /**
+   * Context for the manager model. Language-agnostic on purpose: instead of gating on
+   * English keywords, the model gets the user's memories and decides what is relevant.
+   * Small stores are sent whole; larger ones are ranked (keyword match first, then importance).
+   */
+  public async getRelevantContext(query: string, maxItems = 20): Promise<string> {
     try {
       if (!this.isEnabled()) return "";
-      const lower = query.toLowerCase();
-      let relevant: MemoryItem[] = [];
-      if (lower.includes("continue") || lower.includes("my project") || lower.includes("our project") || lower.includes("building") || lower.includes("what was i working on") || lower.includes("what are we building") || lower.includes("project status") || lower.includes("resume")) {
-        const projectMemories = await this.getMemories({ category: "project" });
-        const techMemories = await this.getMemories({ category: "technical" });
-        relevant = [...projectMemories, ...techMemories].slice(0, maxItems);
+      const all = await this.getMemories({ activeOnly: true });
+      if (!all.length) return "";
+
+      const byImportance = [...all].sort((a, b) => {
+        const imp = (b.importance || 3) - (a.importance || 3);
+        if (imp !== 0) return imp;
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      });
+
+      let selected: MemoryItem[];
+      if (all.length <= maxItems) {
+        selected = byImportance;
+      } else {
+        const matched = await this.searchMemories(query, 6);
+        const seen = new Set(matched.map((m) => m.id));
+        selected = [...matched, ...byImportance.filter((m) => !seen.has(m.id))].slice(0, maxItems);
       }
-      if (relevant.length === 0 && /^(who\s+am\s+i|what(?:'s|\s+is)\s+my\s+name|do\s+you\s+know\s+my\s+name|what\s+do\s+you\s+know\s+about\s+me)/i.test(lower.trim())) {
-        relevant = await this.getMemories({ category: "personal", activeOnly: true });
-        if (relevant.length === 0) relevant = (await this.getMemories({ activeOnly: true })).slice(0, maxItems);
-        relevant = relevant.slice(0, maxItems);
-      }
-      if (relevant.length === 0 && (lower.includes("voice") || lower.includes("preference") || lower.includes("setting") || lower.includes("how do i like"))) relevant = await this.getMemories({ category: "preference" });
-      if (relevant.length === 0) relevant = await this.searchMemories(query, maxItems);
-      if (!relevant.length) return "";
-      const formatted = relevant.map((m) => `- ${m.content} [category: ${m.category}]`).join("\n");
-      return `\n\n[RELEVANT LONG-TERM MEMORIES FOR THE BOSS]:\n${formatted}\n(Incorporate this persistent knowledge naturally as your own memory of the Boss and their work. Do not cite "According to my memory database" unless specifically asked.)`;
+
+      const formatted = selected.map((m) => `- ${m.content} [${m.category}]`).join("\n");
+      return `\n\n[LONG-TERM MEMORY ABOUT THE BOSS]:\n${formatted}\n(These are durable facts about the Boss, saved from earlier conversations. Use them naturally whenever relevant, in whatever language the Boss speaks. If asked who they are, what their name is, or what you remember, answer from this list. Do not mention a memory database unless asked.)`;
     } catch (err) { console.warn("JARVIS MemoryService: Context retrieval error:", err); return ""; }
   }
 
-  public async getPersistentContext(maxItems = 8): Promise<string> {
+  public async getPersistentContext(maxItems = 12): Promise<string> {
     try {
       if (!this.isEnabled()) return "";
       const memories = await this.getMemories({ activeOnly: true });
@@ -150,6 +158,50 @@ export class MemoryService {
       const formatted = sorted.map((m) => `- ${m.content}`).join("\n");
       return `\n\n[PERSISTENT LONG-TERM MEMORY — SURVIVES NEW SESSIONS]:\n${formatted}\nTreat these as durable facts/preferences about the Boss. Use them naturally; do not mention the memory store unless asked.`;
     } catch (err) { console.warn("JARVIS MemoryService: Persistent context error:", err); return ""; }
+  }
+
+  /**
+   * Instant, offline extraction of clear identity statements. Covers English, Hinglish and
+   * Hindi script. Deliberately conservative: anything ambiguous is left to the AI classifier.
+   */
+  public extractQuickFacts(rawText: string): Array<{ content: string; category: MemoryCategory; importance: number }> {
+    const text = rawText.trim().replace(/[.!?।]+$/u, "").trim();
+    if (!text || text.length > 120) return [];
+
+    const notName = new Set([
+      "a","an","the","not","so","very","just","really","also","still","now","here","there","going","gonna","wanna",
+      "trying","working","looking","from","in","at","on","with","about","into","too","done","back","home","online",
+      "free","late","early","new","good","bad","great","fine","ok","okay","sure","sorry","glad","happy","sad","angry",
+      "tired","sleepy","hungry","thirsty","bored","busy","ready","confused","excited","scared","sick","afraid","fan",
+      "student","here","coming","leaving","waiting","thinking","hi","hello","hey","yes","no","never","always","ab","abhi",
+      "bahut","bohot","thoda","kal","aaj","theek","thik","accha","achha","mast","free","kuch","kya","kaise"
+    ]);
+    const cleanName = (raw: string, maxWords: number): string | null => {
+      const words = raw.trim().split(/\s+/);
+      if (!words.length || words.length > maxWords) return null;
+      const first = words[0].toLowerCase();
+      if (notName.has(first) || /ing$/i.test(first)) return null;
+      if (!words.every((w) => /^[\p{L}\p{M}][\p{L}\p{M}'\-.]{0,24}$/u.test(w))) return null;
+      return words.map((w) => (/^[a-z]/.test(w) ? w[0].toUpperCase() + w.slice(1) : w)).join(" ");
+    };
+
+    const facts: Array<{ content: string; category: MemoryCategory; importance: number }> = [];
+    const push = (name: string | null) => {
+      if (name) facts.push({ content: `The user's name is ${name}`, category: "personal", importance: 5 });
+    };
+
+    let m: RegExpMatchArray | null;
+    // Explicit name statements (English / Hinglish / Hindi) — accept up to 3 words.
+    if ((m = text.match(/\b(?:my\s+name\s+is|call\s+me|name['’]s)\s+(.+)$/i))) push(cleanName(m[1], 3));
+    else if ((m = text.match(/\bmera\s+(?:naam|name)\s+(.+?)\s+(?:hai|h|he)$/i))) push(cleanName(m[1], 3));
+    else if ((m = text.match(/\bmujhe\s+(.+?)\s+(?:bulao|bulana|bolo|bolna|kaho)$/i))) push(cleanName(m[1], 2));
+    else if ((m = text.match(/(?:मेरा\s+नाम|मेरा\s+नेम)\s+(.+?)\s+(?:है|हैं)$/u))) push(cleanName(m[1], 3));
+    else if ((m = text.match(/^(?:मैं|में|मै)\s+(.+?)\s+(?:हूँ|हूं|हु)$/u))) push(cleanName(m[1], 2));
+    // Whole-utterance short forms: "I'm Void", "I am Void", "im Void", "main Void hu".
+    else if ((m = text.match(/^(?:i['’]?m|i\s+am)\s+(.+)$/i))) push(cleanName(m[1], 2));
+    else if ((m = text.match(/^(?:main|mai|mein)\s+(.+?)\s+(?:hu|hoon|hun|hoo)$/i))) push(cleanName(m[1], 2));
+
+    return facts;
   }
 
   public parseMemoryIntent(rawText: string): { type: "save" | "delete" | "query" | "clear"; content?: string; category?: MemoryCategory; target?: string } | null {
