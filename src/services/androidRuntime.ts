@@ -121,8 +121,7 @@ export async function generateAndroidReply(
   const key = getAndroidApiKey();
   if (!key) throw new Error("Add your Gemini API key in Settings first.");
 
-  // Android uses the proven non-streaming REST path. Gemini Live remains voice I/O;
-  // the selected brain model remains authoritative.
+  const selectedModel = (model || CHAT_MODEL).trim() || CHAT_MODEL;
   const contents = [
     ...history.slice(-8).map((item) => ({
       role: item.role,
@@ -131,39 +130,76 @@ export async function generateAndroidReply(
     { role: "user", parts: [{ text: message }] },
   ];
 
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 15000);
+  const startedAt = performance.now();
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(selectedModel)}:generateContent`;
 
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": key,
-        },
-        signal: controller.signal,
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: systemInstruction }] },
-          contents,
-          generationConfig: {
-            thinkingConfig: {
-              thinkingLevel: (model === "gemini-3.7-flash" || model === "gemini-3.8-flash") ? "low" : "minimal",
-            },
-            maxOutputTokens: 256,
-          },
-        }),
-      }
-    );
+    console.log("[Gemini Android] Brain request started", {
+      model: selectedModel,
+      url,
+      method: "POST",
+      historyMessages: contents.length - 1,
+      promptChars: message.length,
+      systemChars: systemInstruction.length,
+    });
 
-    const data = await res.json().catch(() => ({}));
+    // Deliberately use the proven Android REST generateContent path.
+    // There is no short client-side AbortController here: previous latency work
+    // introduced an 8–15s abort which hid a slow-but-valid Gemini response as
+    // "Gemini request timed out." The platform/network is now allowed to finish.
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": key,
+      },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: systemInstruction }] },
+        contents,
+        generationConfig: {
+          temperature: 0.7,
+          thinkingConfig: { thinkingLevel: "minimal" },
+          maxOutputTokens: 800,
+        },
+      }),
+    });
+
+    const elapsedMs = Math.max(0, Math.round(performance.now() - startedAt));
+    const raw = await res.text();
+    let data: any = {};
+    try {
+      data = raw ? JSON.parse(raw) : {};
+    } catch {
+      data = {};
+    }
 
     if (!res.ok) {
+      const providerMessage =
+        data?.error?.message ||
+        raw?.slice(0, 500) ||
+        `HTTP ${res.status}`;
+
+      let kind = "unknown";
+      if (res.status === 400) kind = "invalid_request";
+      else if (res.status === 401 || res.status === 403) kind = "authentication_or_permission";
+      else if (res.status === 404) kind = "model_or_endpoint_not_found";
+      else if (res.status === 429) kind = "quota_or_rate_limit";
+      else if (res.status >= 500 && res.status <= 599) kind = "gemini_server_error";
+
       const error: any = new Error(
-        data?.error?.message || `Gemini request failed (${res.status}).`
+        `Gemini ${selectedModel} failed (HTTP ${res.status}, ${kind}) after ${elapsedMs}ms: ${providerMessage}`
       );
       error.status = res.status;
+      error.kind = kind;
+      error.model = selectedModel;
+      error.elapsedMs = elapsedMs;
+      console.error("[Gemini Android] Brain request failed", {
+        model: selectedModel,
+        httpStatus: res.status,
+        kind,
+        elapsedMs,
+        message: providerMessage,
+      });
       throw error;
     }
 
@@ -173,22 +209,55 @@ export async function generateAndroidReply(
       .trim() || "";
 
     if (!text) {
-      throw new Error("Gemini returned an empty response.");
+      const finishReason = data?.candidates?.[0]?.finishReason || data?.promptFeedback?.blockReason || "unknown";
+      const error: any = new Error(
+        `Gemini ${selectedModel} returned no text after ${elapsedMs}ms (finishReason: ${finishReason}).`
+      );
+      error.status = 200;
+      error.kind = "empty_model_response";
+      error.model = selectedModel;
+      error.elapsedMs = elapsedMs;
+      console.error("[Gemini Android] Empty brain response", {
+        model: selectedModel,
+        httpStatus: 200,
+        elapsedMs,
+        finishReason,
+      });
+      throw error;
     }
 
-    // Keep the existing streaming UI contract. On Android the proven REST
-    // response arrives as one chunk rather than unreliable WebView SSE chunks.
+    console.log("[Gemini Android] Brain request succeeded", {
+      model: selectedModel,
+      httpStatus: res.status,
+      responseMs: elapsedMs,
+      outputChars: text.length,
+    });
+
+    // Preserve the existing streaming UI contract. Android uses one reliable REST
+    // result rather than WebView SSE chunking, so the UI receives one authoritative chunk.
     onChunk?.(text);
     return text;
   } catch (err: any) {
-    if (err?.name === "AbortError") {
-      const timeoutError: any = new Error("Gemini request timed out.");
-      timeoutError.status = 503;
-      throw timeoutError;
+    // Fetch/network failures must remain visible as network/TLS/WebView errors.
+    // Do not rewrite arbitrary failures as a Gemini timeout.
+    if (err instanceof TypeError) {
+      const elapsedMs = Math.max(0, Math.round(performance.now() - startedAt));
+      const networkError: any = new Error(
+        `Gemini ${selectedModel} network request failed after ${elapsedMs}ms: ${err.message || "Fetch failed"}`
+      );
+      networkError.kind = "network";
+      networkError.model = selectedModel;
+      networkError.elapsedMs = elapsedMs;
+      networkError.cause = err;
+      console.error("[Gemini Android] Network/WebView fetch failure", {
+        model: selectedModel,
+        elapsedMs,
+        message: err.message,
+      });
+      throw networkError;
     }
+
     throw err;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
