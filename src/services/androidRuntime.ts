@@ -125,56 +125,73 @@ export async function generateAndroidReply(
   ];
 
   const request = async (model: string): Promise<string> => {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: systemInstruction }] },
-          contents,
-          generationConfig: { temperature: 0.7, maxOutputTokens: 800 },
-        }),
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 25000);
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+          signal: controller.signal,
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: systemInstruction }] },
+            contents,
+            generationConfig: { temperature: 0.7, maxOutputTokens: 800 },
+          }),
+        }
+      );
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const error: any = new Error(data?.error?.message || `Gemini request failed (${res.status}).`);
+        error.status = res.status;
+        throw error;
       }
-    );
 
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const error: any = new Error(data?.error?.message || `Gemini request failed (${res.status}).`);
-      error.status = res.status;
-      throw error;
+      const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("").trim();
+      if (!text) throw new Error("Gemini returned an empty response.");
+      return text;
+    } catch (err: any) {
+      if (err?.name === "AbortError") {
+        const timeoutError: any = new Error("Gemini request timed out.");
+        timeoutError.status = 503;
+        throw timeoutError;
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
     }
-
-    const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("").trim();
-    if (!text) throw new Error("Gemini returned an empty response.");
-    return text;
   };
 
-  // 3.8 Flash remains the authoritative Android manager. Temporary capacity
-  // spikes are retried before using 3.7 Flash as an emergency model fallback.
+  const isBusy = (error: any) => {
+    const status = Number(error?.status || 0);
+    return status === 429 || status === 500 || status === 503;
+  };
+
+  // 3.8 Flash stays the primary manager. Capacity spikes get proper backoff, then the
+  // reply falls through 3.7 and finally stable 2.5 Flash, so the user always gets an answer.
   let lastError: any;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       return await request(CHAT_MODEL);
     } catch (error: any) {
       lastError = error;
-      const status = Number(error?.status || 0);
-      if (status !== 429 && status !== 503) throw error;
-      if (attempt < 2) {
-        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
-      }
+      if (!isBusy(error)) throw error;
+      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
     }
   }
 
-  // Only reached when 3.8 is temporarily capacity/rate limited.
-  try {
-    return await request("gemini-3.7-flash");
-  } catch (fallbackError: any) {
-    const original = lastError?.message || "Gemini 3.8 Flash is temporarily unavailable.";
-    throw new Error(
-      `Gemini 3.8 Flash is temporarily busy. Emergency 3.7 fallback also failed: ${fallbackError?.message || original}`
-    );
+  for (const fallbackModel of ["gemini-3.7-flash", "gemini-2.5-flash"]) {
+    try {
+      return await request(fallbackModel);
+    } catch (fallbackError: any) {
+      lastError = fallbackError;
+      if (!isBusy(fallbackError) && Number(fallbackError?.status || 0) !== 404) throw fallbackError;
+    }
   }
+
+  throw new Error(`Gemini is temporarily busy. All models failed: ${lastError?.message || "unavailable"}`);
 }
 
 export async function listenAndroid(
