@@ -701,20 +701,41 @@ async function startServer() {
       }
       contents.push({ role: "user", parts: userParts });
 
-      const streamResponse = await ai.models.generateContentStream({
-        model: CHAT_MODEL,
-        contents,
-        config: {
-          systemInstruction:
-            (systemInstruction || JARVIS_SYSTEM_INSTRUCTION) +
-            "\n\n[ARCHITECTURE] Gemini 3.8 Flash is the authoritative JARVIS manager. It owns reasoning, context, decisions and the final answer. Gemini 3.1 Flash Live Preview is only the realtime voice I/O engine; never treat its independent model output as the authoritative answer. Application actions such as browser, screen-share and memory commands are executed by the JARVIS client orchestration layer; do not emit function calls from this manager endpoint.",
-          // @ts-ignore
-          thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
-          // Application actions are executed by the client orchestration layer.
-          // The manager must return the final natural-language answer instead of
-          // opening a second, unsatisfied function-call turn here.
-        },
-      });
+      const managerConfig = {
+        systemInstruction:
+          (systemInstruction || JARVIS_SYSTEM_INSTRUCTION) +
+          "\n\n[ARCHITECTURE] Gemini 3.8 Flash is the authoritative JARVIS manager. It owns reasoning, context, decisions and the final answer. Gemini 3.1 Flash Live Preview is only the realtime voice I/O engine; never treat its independent model output as the authoritative answer. Application actions such as browser, screen-share and memory commands are executed by the JARVIS client orchestration layer; do not emit function calls from this manager endpoint.",
+        // @ts-ignore
+        thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+      };
+
+      let streamResponse: any;
+      let managerModel = CHAT_MODEL;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          streamResponse = await ai.models.generateContentStream({
+            model: CHAT_MODEL,
+            contents,
+            config: managerConfig,
+          });
+          break;
+        } catch (managerError: any) {
+          const status = Number(managerError?.status || managerError?.code || 0);
+          if (status !== 429 && status !== 503 || attempt === 2) {
+            if (attempt === 2 && (status === 429 || status === 503)) {
+              managerModel = "gemini-3.7-flash";
+              streamResponse = await ai.models.generateContentStream({
+                model: managerModel,
+                contents,
+                config: managerConfig,
+              });
+              break;
+            }
+            throw managerError;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+        }
+      }
 
       for await (const chunk of streamResponse) {
         if (chunk.text) {
