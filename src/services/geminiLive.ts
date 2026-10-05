@@ -258,7 +258,9 @@ export class GeminiLiveService {
           }
 
           if (msg.audio) this.onAudioCallbacks.forEach((cb) => cb(msg.audio));
-          if (msg.text) this.onTextChunkCallbacks.forEach((cb) => cb(msg.text));
+          // Voice-only sessions already render the authoritative brain response
+          // from managerService; never mirror Live output text into chat.
+          if (msg.text && !this.voiceOnly) this.onTextChunkCallbacks.forEach((cb) => cb(msg.text));
           if (msg.interrupted) this.onInterruptedCallbacks.forEach((cb) => cb());
           if (msg.turnComplete) this.onTurnCompleteCallbacks.forEach((cb) => cb());
           if (msg.toolCall && !this.voiceOnly) this.onToolCallCallbacks.forEach((cb) => cb(msg.toolCall));
@@ -454,7 +456,7 @@ export class GeminiLiveService {
         this.onAudioCallbacks.forEach((cb) => cb(String(inlineData.data)));
       }
 
-      if (typeof part?.text === "string" && part.text && this.voiceOutputActive) {
+      if (typeof part?.text === "string" && part.text && this.voiceOutputActive && !this.voiceOnly) {
         this.onTextChunkCallbacks.forEach((cb) => cb(part.text));
       }
     }
@@ -470,7 +472,7 @@ export class GeminiLiveService {
       );
     }
 
-    if (content.outputTranscription?.text && this.voiceOutputActive) {
+    if (content.outputTranscription?.text && this.voiceOutputActive && !this.voiceOnly) {
       this.onTextChunkCallbacks.forEach((cb) =>
         cb(String(content.outputTranscription.text))
       );
