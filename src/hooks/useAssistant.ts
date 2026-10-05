@@ -752,6 +752,44 @@ export function useAssistant() {
       };
       setMessages((prev) => [...prev, userMsg]);
 
+      // Ultra-fast deterministic utility path: device-local time never needs a
+      // network round-trip or model inference. This keeps simple clock checks
+      // effectively instant while Gemini 3.5 remains the brain for real queries.
+      const isLocalTimeQuery = /^(?:what(?:['’]s| is)?\s+time(?:\s+(?:right\s+now|rn|now))?|whats\s+time(?:\s+(?:right\s+now|rn|now))?|what\s+time\s+is\s+it|current\s+time|time\s+(?:right\s+now|rn|now))\??$/i.test(trimmed);
+      if (isLocalTimeQuery && !image) {
+        const now = new Date();
+        const reply = `It is ${now.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}, Boss.`;
+        const completedAt = Date.now();
+        const assistantMsgId = (settingsRef.current.selectedProfileId || "jarvis") + "-" + completedAt;
+        const totalMs = Math.max(0, Math.round(performance.now() - requestPerf));
+        setMessages((prev) => [...prev, {
+          id: assistantMsgId,
+          role: "assistant",
+          sender: (settingsRef.current.selectedProfileId || "jarvis") as any,
+          content: reply,
+          text: reply,
+          timestamp: completedAt,
+          status: "complete",
+          isStreaming: false,
+          isVoice: !!settingsRef.current.voiceEnabled,
+          timing: {
+            requestAt,
+            firstResponseAt: completedAt,
+            completedAt,
+            timeToFirstMs: totalMs,
+            totalMs,
+          },
+        }]);
+        if (settingsRef.current.voiceEnabled && geminiLive.connected) {
+          setState("speaking");
+          setAssistantSpeaking(true);
+          geminiLive.speakText(reply);
+        } else {
+          setState("idle");
+        }
+        return;
+      }
+
       // 1. Check if command is a direct browser action and execute immediately
       const browserIntent = parseBrowserIntent(trimmed, browserManager.isCurrentSiteYouTube());
       if (browserIntent) {
