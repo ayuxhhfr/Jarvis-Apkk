@@ -126,9 +126,12 @@ export async function generateAndroidReply(
     { role: "user", parts: [{ text: message }] },
   ];
 
+  const overallDeadline = Date.now() + 15000;
+
   const requestStream = async (selectedModel: string): Promise<string> => {
+    const remaining = Math.max(1000, overallDeadline - Date.now());
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10000);
+    const timer = setTimeout(() => controller.abort(), Math.min(8000, remaining));
     try {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:streamGenerateContent?alt=sse`,
@@ -194,7 +197,7 @@ export async function generateAndroidReply(
       return finalText;
     } catch (err: any) {
       if (err?.name === "AbortError") {
-        const timeoutError: any = new Error("Gemini request timed out after 10s.");
+        const timeoutError: any = new Error("Gemini request timed out.");
         timeoutError.status = 503;
         throw timeoutError;
       }
@@ -217,6 +220,7 @@ export async function generateAndroidReply(
     .filter((value, index, list) => value && list.indexOf(value) === index);
 
   for (const candidate of modelsToTry) {
+    if (Date.now() >= overallDeadline) break;
     try {
       return await requestStream(candidate);
     } catch (error: any) {
