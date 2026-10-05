@@ -7,6 +7,7 @@
  */
 
 import { CHAT_MODEL } from "../config/modelConfig";
+import { isAndroidApp, generateAndroidReply } from "./androidRuntime";
 
 export interface ManagerRequest {
   message: string;
@@ -22,6 +23,20 @@ export class ManagerService {
     onChunk?: (chunk: string) => void,
     onToolCall?: (toolCall: { name: string; args: any }) => void
   ): Promise<string> {
+    // Android APK does not host the web server at a relative /api path.
+    // Use the same direct Gemini 3.8 REST path used by the Android runtime.
+    // Live 3.1 remains voice I/O only; 3.8 still owns the answer.
+    if (isAndroidApp()) {
+      const prompt = [options.message, options.context || ""].filter(Boolean).join("\n\n");
+      const reply = await generateAndroidReply(
+        prompt,
+        options.systemInstruction || "",
+        options.history || []
+      );
+      onChunk?.(reply);
+      return reply;
+    }
+
     const res = await fetch("/api/gemini/manager", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
