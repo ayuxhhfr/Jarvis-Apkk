@@ -27,10 +27,12 @@ export class ManagerService {
     // Use the same direct Gemini 3.8 REST path used by the Android runtime.
     // Live 3.1 remains voice I/O only; 3.8 still owns the answer.
     if (isAndroidApp()) {
-      const prompt = [options.message, options.context || ""].filter(Boolean).join("\n\n");
+      // Context (memory, time, browser) belongs in the system instruction so the model
+      // treats it as standing knowledge instead of part of the user's message.
+      const system = [options.systemInstruction || "", options.context || ""].filter(Boolean).join("\n");
       const reply = await generateAndroidReply(
-        prompt,
-        options.systemInstruction || "",
+        options.message,
+        system,
         options.history || []
       );
       onChunk?.(reply);
