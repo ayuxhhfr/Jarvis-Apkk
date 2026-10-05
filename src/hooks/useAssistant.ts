@@ -701,15 +701,19 @@ export function useAssistant() {
       stopPlayback();
       setAssistantSpeaking(false);
 
+      // Start the latency clock at the exact moment the request is submitted.
+      const requestAt = Date.now();
+      const requestPerf = performance.now();
+
       // Append user message
-      const userMsgId = "user-" + Date.now();
+      const userMsgId = "user-" + requestAt;
       const userMsg: ChatMessage = {
         id: userMsgId,
         role: "user",
         sender: "user",
         content: trimmed,
         text: trimmed,
-        timestamp: Date.now(),
+        timestamp: requestAt,
         status: "complete",
         isVoice: false,
         image,
@@ -803,13 +807,16 @@ export function useAssistant() {
       // Gemini 3.1 Live only speaks the manager's final answer.
       try {
         if (settingsRef.current.voiceEnabled && !geminiLive.connected) {
-          await connectLive({
+          // Never block the brain request on the realtime voice connection.
+          // A Live setup/reconnect can be slow or temporarily unavailable; the
+          // authoritative 3.5 Flash answer must start immediately.
+          void connectLive({
             voice: settingsRef.current.voice,
             systemInstruction: settingsRef.current.systemInstruction || JARVIS_SYSTEM_INSTRUCTION,
             model: settingsRef.current.liveModel,
             thinkingLevel: settingsRef.current.thinkingLevel,
             voiceOnly: true,
-          });
+          }).catch((err) => console.warn("[Latency] Live reconnect failed:", err));
         }
 
         const assistantMsgId = (settingsRef.current.selectedProfileId || "jarvis") + "-" + Date.now();
@@ -821,6 +828,7 @@ export function useAssistant() {
         }]);
 
         let replyAccumulator = "";
+        let firstResponseAt: number | undefined;
         setState("thinking");
         await managerService.send({
           message: trimmed,
@@ -833,9 +841,23 @@ export function useAssistant() {
           image: image ? { data: image.data, mimeType: image.mimeType } : (activeFrame ? { data: activeFrame.base64, mimeType: activeFrame.mimeType } : undefined),
           model: settingsRef.current.brainModel || CHAT_MODEL,
         }, (chunk) => {
+          if (!firstResponseAt) firstResponseAt = Date.now();
           replyAccumulator += chunk;
+          const now = Date.now();
+          const firstMs = firstResponseAt ? Math.max(0, firstResponseAt - requestAt) : undefined;
           setMessages((prev) => prev.map((m) => m.id === assistantMsgId ? {
-            ...m, content: replyAccumulator, text: replyAccumulator, status: "streaming", isStreaming: true,
+            ...m,
+            content: replyAccumulator,
+            text: replyAccumulator,
+            status: "streaming",
+            isStreaming: true,
+            timing: {
+              requestAt,
+              firstResponseAt,
+              timeToFirstMs: firstMs,
+              completedAt: now,
+              totalMs: Math.max(0, performance.now() - requestPerf),
+            },
           } : m));
         }, async (toolCall) => {
           try {
@@ -850,8 +872,21 @@ export function useAssistant() {
           }
         });
 
+        const completedAt = Date.now();
+        const totalMs = Math.max(0, Math.round(performance.now() - requestPerf));
         setMessages((prev) => prev.map((m) => m.id === assistantMsgId ? {
-          ...m, content: replyAccumulator, text: replyAccumulator, status: "complete", isStreaming: false,
+          ...m,
+          content: replyAccumulator,
+          text: replyAccumulator,
+          status: "complete",
+          isStreaming: false,
+          timing: {
+            requestAt,
+            firstResponseAt,
+            completedAt,
+            timeToFirstMs: firstResponseAt ? Math.max(0, firstResponseAt - requestAt) : undefined,
+            totalMs,
+          },
         } : m));
 
         if (settingsRef.current.voiceEnabled && replyAccumulator && geminiLive.connected) {
