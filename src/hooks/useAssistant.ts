@@ -19,6 +19,7 @@ import { geminiText } from "../services/geminiText";
 import { managerService } from "../services/managerService";
 import { parseBrowserIntent } from "../services/browserTools";
 import { memoryService } from "../services/memoryService";
+import { memoryLearner } from "../services/memoryLearner";
 import { browserManager } from "../services/browserManager";
 import { defaultMemoryStore } from "../services/memoryStore";
 import { screenShareService } from "../services/screenShareService";
@@ -30,43 +31,20 @@ export function useAssistant() {
   // Explicit "remember/forget" commands still bypass this gate for deterministic control.
   const learnImplicitMemory = useCallback(async (text: string, source: "voice_command" | "inferred") => {
     try {
-      if (memoryService.parseMemoryIntent(text)) return;
-      const decision = await geminiText.classifyMemoryCandidate(text);
-      let memories = decision.shouldRemember ? (decision.memories || []) : [];
-
-      // Safety net for explicit self-identification. Gemini remains the primary
-      // classifier, but a clear "I'm X / I am X / my name is X" must never be
-      // lost just because the lightweight classifier is unavailable or cautious.
-      if (!memories.length) {
-        const identityMatch = text.match(/^\s*(?:i['’]?m|i\s+am|my\s+name\s+is)\s+(.+?)\s*[.!?]?\s*$/i);
-        if (identityMatch) {
-          const value = identityMatch[1].trim();
-          const transient = /^(tired|sleepy|hungry|thirsty|happy|sad|angry|bored|busy|fine|okay|ok|ready|confused|excited|scared|sick)$/i;
-          if (value && !transient.test(value) && value.length <= 60) {
-            memories = [{
-              content: /^(?:i['’]?m|i\s+am)\s+/i.test(text)
-                ? `The user's name/identity is ${value}`
-                : `The user's name is ${value}`,
-              category: "personal",
-              importance: 5,
-            }];
-          }
-        }
-      }
-
-      if (!memories.length) return;
-      // Save every durable fact Gemini extracted, not just a single summary.
-      for (const memory of memories) {
-        await memoryService.saveMemory(
-          memory.content,
-          memory.category,
-          Math.min(5, Math.max(1, Number(memory.importance) || 3)),
-          source
-        );
-      }
+      // Instant rule-based save first, AI classification + retry queue in the background.
+      await memoryLearner.learn(text, source);
     } catch (err) {
-      console.warn("Gemini memory learning skipped:", err);
+      console.warn("Memory learning skipped:", err);
     }
+  }, []);
+
+  // Retry memories that could not be classified while Gemini was busy/offline.
+  useEffect(() => {
+    void memoryLearner.drain();
+    const timer = setInterval(() => { void memoryLearner.drain(); }, 60000);
+    const onOnline = () => { void memoryLearner.drain(); };
+    window.addEventListener("online", onOnline);
+    return () => { clearInterval(timer); window.removeEventListener("online", onOnline); };
   }, []);
   const [state, setState] = useState<AssistantState>("idle");
   const [settings, setSettings] = useState<AssistantSettings>(() => {
@@ -406,6 +384,8 @@ export function useAssistant() {
         sessionService.recordActivity(true);
         sessionService.consumeReturnEvent();
 
+        // Declared outside the try so the catch block can clean up the placeholder message.
+        let assistantMsgId = "";
         try {
           const browserIntent = parseBrowserIntent(clean, browserManager.isCurrentSiteYouTube());
           if (browserIntent) browserManager.executeTool(browserIntent.name, browserIntent.args);
@@ -416,7 +396,7 @@ export function useAssistant() {
             else if (memoryIntent.type === "delete" && memoryIntent.target) await memoryService.deleteMemoryByPattern(memoryIntent.target);
             else if (memoryIntent.type === "clear") await memoryService.clearMemories();
           } else {
-            void learnImplicitMemory(clean, "voice_command");
+            await learnImplicitMemory(clean, "voice_command");
           }
 
           const screenIntent = screenShareService.parseScreenShareIntent(clean);
@@ -431,7 +411,7 @@ export function useAssistant() {
           const activeFrame = screenShareService.isSharing() ? screenShareService.captureFrame(true) || screenShareService.getLatestFrame() : null;
           const combinedContext = [temporalContext, browserContext, memoryContext].filter(Boolean).join("\n");
 
-          const assistantMsgId = (settingsRef.current.selectedProfileId || "jarvis") + "-" + Date.now();
+          assistantMsgId = (settingsRef.current.selectedProfileId || "jarvis") + "-" + Date.now();
           setMessages((prev) => [...prev, {
             id: assistantMsgId, role: "assistant",
             sender: (settingsRef.current.selectedProfileId || "jarvis") as any,
@@ -769,7 +749,7 @@ export function useAssistant() {
           console.warn("Error running memory intent:", err);
         }
       } else {
-        void learnImplicitMemory(trimmed, "inferred");
+        await learnImplicitMemory(trimmed, "inferred");
       }
 
       // 4. Retrieve relevant memory context for the current query
