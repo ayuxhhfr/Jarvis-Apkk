@@ -17,7 +17,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = parseInt(process.env.PORT || "3000", 10);
-const CHAT_MODEL = "gemini-3.8-flash";
+const CHAT_MODEL = "gemini-3.5-flash";
 const LIVE_MODEL = "gemini-3.1-flash-live-preview";
 const TTS_MODEL = "gemini-3.8-flash-lite-tts";
 const MEMORY_MODEL = "gemini-2.5-flash-lite";
@@ -861,7 +861,7 @@ async function startServer() {
       contents.push({ role: "user", parts: userParts });
 
       const streamResponse = await ai.models.generateContentStream({
-        model: "gemini-3.8-flash",
+        model: CHAT_MODEL,
         contents,
         config: {
           systemInstruction: systemInstruction || JARVIS_SYSTEM_INSTRUCTION,
