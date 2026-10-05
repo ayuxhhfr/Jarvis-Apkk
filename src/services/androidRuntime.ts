@@ -115,7 +115,8 @@ export async function generateAndroidReply(
   message: string,
   systemInstruction: string,
   history: Array<{ role: "user" | "model"; text: string }> = [],
-  model: string = CHAT_MODEL
+  model: string = CHAT_MODEL,
+  onChunk?: (chunk: string) => void
 ): Promise<string> {
   const key = getAndroidApiKey();
   if (!key) throw new Error("Add your Gemini API key in Settings first.");
@@ -125,12 +126,12 @@ export async function generateAndroidReply(
     { role: "user", parts: [{ text: message }] },
   ];
 
-  const request = async (model: string): Promise<string> => {
+  const requestStream = async (selectedModel: string): Promise<string> => {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 25000);
+    const timer = setTimeout(() => controller.abort(), 10000);
     try {
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:streamGenerateContent?alt=sse`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-goog-api-key": key },
@@ -138,24 +139,62 @@ export async function generateAndroidReply(
           body: JSON.stringify({
             system_instruction: { parts: [{ text: systemInstruction }] },
             contents,
-            generationConfig: { temperature: 0.7, maxOutputTokens: 800 },
+            generationConfig: {
+              thinkingConfig: { thinkingLevel: "minimal" },
+              maxOutputTokens: 512,
+            },
           }),
         }
       );
 
-      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
         const error: any = new Error(data?.error?.message || `Gemini request failed (${res.status}).`);
         error.status = res.status;
         throw error;
       }
+      if (!res.body) throw new Error("Gemini returned no streaming body.");
 
-      const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("").trim();
-      if (!text) throw new Error("Gemini returned an empty response.");
-      return text;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let fullText = "";
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const raw = line.slice(6).trim();
+            if (!raw) continue;
+
+            const parsed = JSON.parse(raw);
+            const chunk = parsed?.candidates?.[0]?.content?.parts
+              ?.map((part: any) => part?.text || "")
+              .join("") || "";
+
+            if (chunk) {
+              fullText += chunk;
+              onChunk?.(chunk);
+            }
+          }
+        }
+      } finally {
+        try { reader.releaseLock(); } catch {}
+      }
+
+      const finalText = fullText.trim();
+      if (!finalText) throw new Error("Gemini returned an empty response.");
+      return finalText;
     } catch (err: any) {
       if (err?.name === "AbortError") {
-        const timeoutError: any = new Error("Gemini request timed out.");
+        const timeoutError: any = new Error("Gemini request timed out after 10s.");
         timeoutError.status = 503;
         throw timeoutError;
       }
@@ -170,25 +209,19 @@ export async function generateAndroidReply(
     return status === 429 || status === 500 || status === 503;
   };
 
-  // The selected brain model is primary. Capacity spikes fall through newer stable
-  // 3.x models; do not depend on restricted 2.5 models for normal recovery.
+  // Android previously used non-streaming generateContent, so the UI received
+  // absolutely nothing until the entire answer was finished. SSE streaming
+  // now exposes the first response chunk immediately.
   let lastError: any;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  const modelsToTry = [model, "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"]
+    .filter((value, index, list) => value && list.indexOf(value) === index);
+
+  for (const candidate of modelsToTry) {
     try {
-      return await request(model);
+      return await requestStream(candidate);
     } catch (error: any) {
       lastError = error;
       if (!isBusy(error)) throw error;
-      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
-    }
-  }
-
-  for (const fallbackModel of ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"]) {
-    try {
-      return await request(fallbackModel);
-    } catch (fallbackError: any) {
-      lastError = fallbackError;
-      if (!isBusy(fallbackError) && Number(fallbackError?.status || 0) !== 404) throw fallbackError;
     }
   }
 
