@@ -22,6 +22,10 @@ export interface AssistantSettings {
   voiceEnabled: boolean;
   systemInstruction: string;
   selectedProfileId?: string;
+  /** Authoritative text/reasoning model. Defaults to Gemini 3.5 Flash. */
+  brainModel?: string;
+  /** Background model routing preference. Auto keeps memory/background tasks on their dedicated model. */
+  backgroundModel?: string;
 }
 
 export interface AudioVisualizerData {
