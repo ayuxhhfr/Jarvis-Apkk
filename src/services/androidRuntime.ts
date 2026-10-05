@@ -143,7 +143,9 @@ export async function generateAndroidReply(
             system_instruction: { parts: [{ text: systemInstruction }] },
             contents,
             generationConfig: {
-              thinkingConfig: { thinkingLevel: "minimal" },
+              thinkingConfig: {
+                thinkingLevel: (selectedModel === "gemini-3.7-flash" || selectedModel === "gemini-3.8-flash") ? "low" : "minimal",
+              },
               maxOutputTokens: 512,
             },
           }),
