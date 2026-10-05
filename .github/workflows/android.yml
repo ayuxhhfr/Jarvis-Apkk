@@ -1,5 +1,6 @@
 name: JARVIS Android APK
 # Manual latest-code rebuild
+# CI validation after model export fix
 
 on:
   push:
