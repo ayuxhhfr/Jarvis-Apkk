@@ -35,9 +35,9 @@ export class ManagerService {
         options.message,
         system,
         options.history || [],
-        options.model || CHAT_MODEL
+        options.model || CHAT_MODEL,
+        onChunk
       );
-      onChunk?.(reply);
       return reply;
     }
 
