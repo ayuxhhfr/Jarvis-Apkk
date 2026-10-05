@@ -34,7 +34,8 @@ export class ManagerService {
       const reply = await generateAndroidReply(
         options.message,
         system,
-        options.history || []
+        options.history || [],
+        options.model || CHAT_MODEL
       );
       onChunk?.(reply);
       return reply;
