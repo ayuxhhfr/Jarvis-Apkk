@@ -121,135 +121,73 @@ export async function generateAndroidReply(
   const key = getAndroidApiKey();
   if (!key) throw new Error("Add your Gemini API key in Settings first.");
 
+  // Android uses the proven non-streaming REST path. Gemini Live remains voice I/O;
+  // the selected brain model remains authoritative.
   const contents = [
-    ...history.slice(-10).map((item) => ({ role: item.role, parts: [{ text: item.text }] })),
+    ...history.slice(-8).map((item) => ({
+      role: item.role,
+      parts: [{ text: item.text.slice(-1800) }],
+    })),
     { role: "user", parts: [{ text: message }] },
   ];
 
-  // Keep a generous hard ceiling so a slow mobile/network hop never causes
-  // the fallback chain to eat the entire request. Fast responses still stream
-  // immediately; this is only a safety ceiling.
-  const overallDeadline = Date.now() + 25000;
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 15000);
 
-  const requestStream = async (selectedModel: string): Promise<string> => {
-    const remaining = overallDeadline - Date.now();
-    if (remaining <= 0) throw Object.assign(new Error("Gemini request deadline exceeded."), { status: 503 });
-    const controller = new AbortController();
-    // Give the selected brain enough time for a cold mobile/network request.
-    // We no longer abort at an artificial 8s boundary.
-    const timer = setTimeout(() => controller.abort(), Math.min(20000, remaining));
-    // Keep streamed text in scope for the timeout/error handler. If a timeout
-    // happens after useful output, return that partial answer instead of retrying.
-    let fullText = "";
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:streamGenerateContent?alt=sse`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-          signal: controller.signal,
-          body: JSON.stringify({
-            system_instruction: { parts: [{ text: systemInstruction }] },
-            contents,
-            generationConfig: {
-              thinkingConfig: {
-                thinkingLevel: (selectedModel === "gemini-3.7-flash" || selectedModel === "gemini-3.8-flash") ? "low" : "minimal",
-              },
-              maxOutputTokens: 512,
-            },
-          }),
-        }
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": key,
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemInstruction }] },
+          contents,
+          generationConfig: {
+            thinkingConfig: { thinkingLevel: "minimal" },
+            maxOutputTokens: 256,
+          },
+        }),
+      }
+    );
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      const error: any = new Error(
+        data?.error?.message || `Gemini request failed (${res.status}).`
       );
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        const error: any = new Error(data?.error?.message || `Gemini request failed (${res.status}).`);
-        error.status = res.status;
-        throw error;
-      }
-      if (!res.body) throw new Error("Gemini returned no streaming body.");
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-
-          for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
-            const raw = line.slice(6).trim();
-            if (!raw) continue;
-
-            const parsed = JSON.parse(raw);
-            const chunk = parsed?.candidates?.[0]?.content?.parts
-              ?.map((part: any) => part?.text || "")
-              .join("") || "";
-
-            if (chunk) {
-              fullText += chunk;
-              onChunk?.(chunk);
-            }
-          }
-        }
-      } finally {
-        try { reader.releaseLock(); } catch {}
-      }
-
-      const finalText = fullText.trim();
-      if (!finalText) throw new Error("Gemini returned an empty response.");
-      return finalText;
-    } catch (err: any) {
-      if (err?.name === "AbortError") {
-        // If useful text already streamed, keep it instead of falling back and
-        // duplicating the partial answer or wasting the remaining latency budget.
-        if (fullText.trim()) return fullText.trim();
-        const timeoutError: any = new Error("Gemini request timed out.");
-        timeoutError.status = 503;
-        throw timeoutError;
-      }
-      throw err;
-    } finally {
-      clearTimeout(timer);
+      error.status = res.status;
+      throw error;
     }
-  };
 
-  const isBusy = (error: any) => {
-    const status = Number(error?.status || 0);
-    return status === 429 || status === 500 || status === 503;
-  };
+    const text = data?.candidates?.[0]?.content?.parts
+      ?.map((part: any) => part?.text || "")
+      .join("")
+      .trim() || "";
 
-  // Android previously used non-streaming generateContent, so the UI received
-  // absolutely nothing until the entire answer was finished. SSE streaming
-  // now exposes the first response chunk immediately.
-  //
-  // Do NOT burn the latency budget by timing out one healthy 3.5 request and
-  // immediately trying several other models. Fallbacks are for explicit
-  // provider-busy responses (429/5xx), not normal network latency.
-  let lastError: any;
-  const modelsToTry = [model, "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"]
-    .filter((value, index, list) => value && list.indexOf(value) === index);
-
-  for (const candidate of modelsToTry) {
-    if (Date.now() >= overallDeadline) break;
-    try {
-      return await requestStream(candidate);
-    } catch (error: any) {
-      lastError = error;
-      // A timeout is a real request failure, not evidence that every model is
-      // busy. Do not immediately fan out to multiple models and make the user
-      // wait through a chain of doomed requests.
-      if (!isBusy(error) || error?.status === 503 && error?.message === "Gemini request timed out.") throw error;
+    if (!text) {
+      throw new Error("Gemini returned an empty response.");
     }
+
+    // Keep the existing streaming UI contract. On Android the proven REST
+    // response arrives as one chunk rather than unreliable WebView SSE chunks.
+    onChunk?.(text);
+    return text;
+  } catch (err: any) {
+    if (err?.name === "AbortError") {
+      const timeoutError: any = new Error("Gemini request timed out.");
+      timeoutError.status = 503;
+      throw timeoutError;
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-
-  throw new Error(`Gemini is temporarily busy. All models failed: ${lastError?.message || "unavailable"}`);
 }
 
 export async function listenAndroid(
