@@ -10,16 +10,12 @@ import { AssistantState } from "../types/assistant";
 
 interface InputBarProps {
   onSendMessage: (text: string, image?: { data: string; mimeType: string }) => void;
-  onToggleMic: () => void;
-  isMicActive: boolean;
   state: AssistantState;
   disabled?: boolean;
 }
 
 export const InputBar: React.FC<InputBarProps> = ({
   onSendMessage,
-  onToggleMic,
-  isMicActive,
   state,
   disabled = false,
 }) => {
