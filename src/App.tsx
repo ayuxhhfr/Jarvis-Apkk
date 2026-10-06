@@ -85,24 +85,31 @@ export default function App() {
   // Keep the current conversation mirrored into the persistent sidebar index.
   useEffect(() => {
     if (!activeChatId) return;
-    try {
-      const key = "jarvis_chat_sessions_v2";
-      const raw = localStorage.getItem(key);
-      const sessions = raw ? JSON.parse(raw) : [];
-      const existing = Array.isArray(sessions) ? sessions : [];
-      const titleMessage = messages.find(m => m.role === "user" && (m.content || m.text));
-      const titleRaw = (titleMessage?.content || titleMessage?.text || "New conversation").trim();
-      const session = {
-        id: activeChatId,
-        title: titleRaw.length > 34 ? titleRaw.slice(0, 34) + "…" : titleRaw,
-        messages,
-        updatedAt: Date.now(),
-      };
-      const merged = existing.some((s: any) => s.id === activeChatId)
-        ? existing.map((s: any) => s.id === activeChatId ? session : s)
-        : [session, ...existing];
-      localStorage.setItem(key, JSON.stringify(merged.sort((a: any,b: any) => b.updatedAt - a.updatedAt).slice(0, 50)));
-    } catch {}
+    // Never serialize the full chat-session index for every streamed token.
+    if (messages.some((message) => message.isStreaming || message.status === "streaming")) return;
+
+    const timer = window.setTimeout(() => {
+      try {
+        const key = "jarvis_chat_sessions_v2";
+        const raw = localStorage.getItem(key);
+        const sessions = raw ? JSON.parse(raw) : [];
+        const existing = Array.isArray(sessions) ? sessions : [];
+        const titleMessage = messages.find(m => m.role === "user" && (m.content || m.text));
+        const titleRaw = (titleMessage?.content || titleMessage?.text || "New conversation").trim();
+        const session = {
+          id: activeChatId,
+          title: titleRaw.length > 34 ? titleRaw.slice(0, 34) + "…" : titleRaw,
+          messages,
+          updatedAt: Date.now(),
+        };
+        const merged = existing.some((s: any) => s.id === activeChatId)
+          ? existing.map((s: any) => s.id === activeChatId ? session : s)
+          : [session, ...existing];
+        localStorage.setItem(key, JSON.stringify(merged.sort((a: any,b: any) => b.updatedAt - a.updatedAt).slice(0, 50)));
+      } catch {}
+    }, 400);
+
+    return () => window.clearTimeout(timer);
   }, [messages, activeChatId]);
 
   useEffect(() => {
