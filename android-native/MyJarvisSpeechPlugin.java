@@ -5,6 +5,13 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.os.Bundle;
+import android.util.Base64;
+import android.media.AudioFormat;
+import android.media.AudioRecord;
+import android.media.MediaRecorder;
+import android.media.audiofx.AcousticEchoCanceler;
+import android.media.audiofx.AutomaticGainControl;
+import android.media.audiofx.NoiseSuppressor;
 import android.os.Handler;
 import android.os.Looper;
 import android.speech.RecognitionListener;
@@ -38,6 +45,16 @@ public class MyJarvisSpeechPlugin extends Plugin {
     private TextToSpeech tts;
     private boolean listening;
     private boolean wakeWordActive;
+
+    // Native realtime PCM capture for Android. Using AudioRecord with the
+    // voice-communication audio path lets Android's hardware/audio stack apply
+    // AEC/NS/AGC before the 16 kHz PCM reaches the WebView/Gemini Live.
+    private AudioRecord pcmRecorder;
+    private Thread pcmThread;
+    private volatile boolean pcmCaptureActive;
+    private AcousticEchoCanceler acousticEchoCanceler;
+    private NoiseSuppressor noiseSuppressor;
+    private AutomaticGainControl automaticGainControl;
     private String wakeWord = "jarvis";
 
     @Override
@@ -219,6 +236,246 @@ public class MyJarvisSpeechPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void startPcmCapture(PluginCall call) {
+        main.post(() -> {
+            try {
+                if (ContextCompat.checkSelfPermission(getContext(), Manifest.permission.RECORD_AUDIO)
+                        != PackageManager.PERMISSION_GRANTED) {
+                    call.reject("Microphone permission is not granted");
+                    return;
+                }
+
+                stopPcmCaptureInternal();
+
+                final int sampleRate = 16000;
+                final int chunkSamples = 640; // 40 ms at 16 kHz
+                final int channelMask = AudioFormat.CHANNEL_IN_MONO;
+                final int encoding = AudioFormat.ENCODING_PCM_16BIT;
+
+                int minBuffer = AudioRecord.getMinBufferSize(sampleRate, channelMask, encoding);
+                if (minBuffer <= 0) {
+                    call.reject("Android audio input is unavailable");
+                    return;
+                }
+
+                int bufferBytes = Math.max(minBuffer * 2, chunkSamples * 2 * 4);
+                AudioRecord.Builder builder = new AudioRecord.Builder()
+                        .setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+                        .setAudioFormat(new AudioFormat.Builder()
+                                .setSampleRate(sampleRate)
+                                .setChannelMask(channelMask)
+                                .setEncoding(encoding)
+                                .build())
+                        .setBufferSizeInBytes(bufferBytes);
+
+                if (android.os.Build.VERSION.SDK_INT >= 29) {
+                    try { builder.setPrivacySensitive(true); } catch (Throwable ignored) {}
+                }
+
+                AudioRecord record;
+                try {
+                    record = builder.build();
+                } catch (Throwable primaryError) {
+                    // A few vendor devices reject VOICE_COMMUNICATION at 16 kHz.
+                    // Fall back to VOICE_RECOGNITION, which still enables the
+                    // platform's speech-oriented processing path where available.
+                    builder = new AudioRecord.Builder()
+                            .setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
+                            .setAudioFormat(new AudioFormat.Builder()
+                                    .setSampleRate(sampleRate)
+                                    .setChannelMask(channelMask)
+                                    .setEncoding(encoding)
+                                    .build())
+                            .setBufferSizeInBytes(bufferBytes);
+                    if (android.os.Build.VERSION.SDK_INT >= 29) {
+                        try { builder.setPrivacySensitive(true); } catch (Throwable ignored) {}
+                    }
+                    record = builder.build();
+                }
+
+                if (record.getState() != AudioRecord.STATE_INITIALIZED) {
+                    try { record.release(); } catch (Throwable ignored) {}
+                    call.reject("Android microphone could not be initialized");
+                    return;
+                }
+
+                pcmRecorder = record;
+                final int sessionId = record.getAudioSessionId();
+
+                boolean aecEnabled = false;
+                boolean nsEnabled = false;
+                boolean agcEnabled = false;
+
+                try {
+                    if (AcousticEchoCanceler.isAvailable()) {
+                        acousticEchoCanceler = AcousticEchoCanceler.create(sessionId);
+                        if (acousticEchoCanceler != null) {
+                            acousticEchoCanceler.setEnabled(true);
+                            aecEnabled = acousticEchoCanceler.getEnabled();
+                        }
+                    }
+                } catch (Throwable ignored) {}
+
+                try {
+                    if (NoiseSuppressor.isAvailable()) {
+                        noiseSuppressor = NoiseSuppressor.create(sessionId);
+                        if (noiseSuppressor != null) {
+                            noiseSuppressor.setEnabled(true);
+                            nsEnabled = noiseSuppressor.getEnabled();
+                        }
+                    }
+                } catch (Throwable ignored) {}
+
+                try {
+                    if (AutomaticGainControl.isAvailable()) {
+                        automaticGainControl = AutomaticGainControl.create(sessionId);
+                        if (automaticGainControl != null) {
+                            automaticGainControl.setEnabled(true);
+                            agcEnabled = automaticGainControl.getEnabled();
+                        }
+                    }
+                } catch (Throwable ignored) {}
+
+                pcmCaptureActive = true;
+                final boolean finalAecEnabled = aecEnabled;
+                final boolean finalNsEnabled = nsEnabled;
+                final boolean finalAgcEnabled = agcEnabled;
+
+                JSObject ready = new JSObject();
+                ready.put("sampleRate", sampleRate);
+                ready.put("chunkMs", 40);
+                ready.put("echoCancellation", finalAecEnabled);
+                ready.put("noiseSuppression", finalNsEnabled);
+                ready.put("automaticGainControl", finalAgcEnabled);
+                notifyListeners("audioReady", ready);
+
+                pcmThread = new Thread(() -> {
+                    short[] buffer = new short[chunkSamples];
+                    float noiseFloor = 0.0045f;
+                    int speechFrames = 0;
+                    int silenceFrames = 0;
+                    boolean speechActive = false;
+
+                    try {
+                        record.startRecording();
+
+                        while (pcmCaptureActive && pcmRecorder == record) {
+                            int read = record.read(buffer, 0, buffer.length, AudioRecord.READ_BLOCKING);
+                            if (read <= 0) continue;
+
+                            double sumSquares = 0.0;
+                            for (int i = 0; i < read; i++) {
+                                float v = buffer[i] / 32768.0f;
+                                sumSquares += v * v;
+                            }
+                            float rms = (float) Math.sqrt(sumSquares / Math.max(1, read));
+
+                            // Adaptive floor: only learn while we are not confidently
+                            // hearing speech, so distant speech remains detectable.
+                            float threshold = Math.max(0.009f, noiseFloor * 2.4f);
+                            boolean speech = rms >= threshold;
+
+                            if (!speech) {
+                                noiseFloor = noiseFloor * 0.94f + rms * 0.06f;
+                                silenceFrames++;
+                                speechFrames = 0;
+                            } else {
+                                speechFrames++;
+                                silenceFrames = 0;
+                            }
+
+                            if (!speechActive && speechFrames >= 2) {
+                                speechActive = true;
+                                JSObject event = new JSObject();
+                                event.put("speech", true);
+                                event.put("rms", rms);
+                                event.put("threshold", threshold);
+                                notifyListeners("speechActivity", event);
+                            } else if (speechActive && silenceFrames >= 12) {
+                                speechActive = false;
+                                JSObject event = new JSObject();
+                                event.put("speech", false);
+                                event.put("rms", rms);
+                                event.put("threshold", threshold);
+                                notifyListeners("speechActivity", event);
+                            }
+
+                            byte[] bytes = new byte[read * 2];
+                            for (int i = 0; i < read; i++) {
+                                bytes[i * 2] = (byte) (buffer[i] & 0xff);
+                                bytes[i * 2 + 1] = (byte) ((buffer[i] >> 8) & 0xff);
+                            }
+
+                            JSObject audio = new JSObject();
+                            audio.put("data", Base64.encodeToString(bytes, Base64.NO_WRAP));
+                            audio.put("rms", rms);
+                            audio.put("speech", speechActive);
+                            notifyListeners("audioChunk", audio);
+                        }
+                    } catch (Throwable e) {
+                        if (pcmCaptureActive) {
+                            JSObject error = new JSObject();
+                            error.put("message", e.getMessage() == null ? "Native audio capture failed" : e.getMessage());
+                            notifyListeners("audioCaptureError", error);
+                        }
+                    } finally {
+                        try { record.stop(); } catch (Throwable ignored) {}
+                    }
+                }, "JarvisNativeMic");
+
+                pcmThread.setPriority(Thread.MAX_PRIORITY);
+                pcmThread.start();
+                call.resolve();
+            } catch (Throwable e) {
+                stopPcmCaptureInternal();
+                call.reject(e.getMessage() == null ? "Unable to start native microphone" : e.getMessage());
+            }
+        });
+    }
+
+    @PluginMethod
+    public void stopPcmCapture(PluginCall call) {
+        main.post(() -> {
+            stopPcmCaptureInternal();
+            call.resolve();
+        });
+    }
+
+    private void stopPcmCaptureInternal() {
+        pcmCaptureActive = false;
+
+        AudioRecord record = pcmRecorder;
+        pcmRecorder = null;
+
+        if (record != null) {
+            try { record.stop(); } catch (Throwable ignored) {}
+            try { record.release(); } catch (Throwable ignored) {}
+        }
+
+        if (acousticEchoCanceler != null) {
+            try { acousticEchoCanceler.setEnabled(false); } catch (Throwable ignored) {}
+            try { acousticEchoCanceler.release(); } catch (Throwable ignored) {}
+            acousticEchoCanceler = null;
+        }
+        if (noiseSuppressor != null) {
+            try { noiseSuppressor.setEnabled(false); } catch (Throwable ignored) {}
+            try { noiseSuppressor.release(); } catch (Throwable ignored) {}
+            noiseSuppressor = null;
+        }
+        if (automaticGainControl != null) {
+            try { automaticGainControl.setEnabled(false); } catch (Throwable ignored) {}
+            try { automaticGainControl.release(); } catch (Throwable ignored) {}
+            automaticGainControl = null;
+        }
+
+        Thread thread = pcmThread;
+        pcmThread = null;
+        if (thread != null && thread != Thread.currentThread()) {
+            try { thread.interrupt(); } catch (Throwable ignored) {}
+        }
+    }
+
+    @PluginMethod
     public void startListening(PluginCall call) {
         main.post(() -> {
             if (ContextCompat.checkSelfPermission(getContext(), Manifest.permission.RECORD_AUDIO)
@@ -283,7 +540,7 @@ public class MyJarvisSpeechPlugin extends Plugin {
     @PluginMethod
     public void stopListening(PluginCall call) {
         wakeWordActive = false;
-        main.post(() -> { stopRecognizer(); call.resolve(); });
+        main.post(() -> { stopRecognizer(); stopPcmCaptureInternal(); call.resolve(); });
     }
 
     @PluginMethod
@@ -341,6 +598,7 @@ public class MyJarvisSpeechPlugin extends Plugin {
     protected void handleOnDestroy() {
         main.post(() -> {
             stopRecognizer();
+            stopPcmCaptureInternal();
             if (tts != null) { try { tts.stop(); tts.shutdown(); } catch (Throwable ignored) {} tts = null; }
         });
         super.handleOnDestroy();
