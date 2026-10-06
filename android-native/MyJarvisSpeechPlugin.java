@@ -351,14 +351,14 @@ public class MyJarvisSpeechPlugin extends Plugin {
                                 silenceFrames = 0;
                             }
 
-                            if (!speechActive && speechFrames >= 2) {
+                            if (!speechActive && speechFrames >= 3) {
                                 speechActive = true;
                                 JSObject event = new JSObject();
                                 event.put("speech", true);
                                 event.put("rms", rms);
                                 event.put("threshold", threshold);
                                 notifyListeners("speechActivity", event);
-                            } else if (speechActive && silenceFrames >= 12) {
+                            } else if (speechActive && silenceFrames >= 15) {
                                 speechActive = false;
                                 JSObject event = new JSObject();
                                 event.put("speech", false);
