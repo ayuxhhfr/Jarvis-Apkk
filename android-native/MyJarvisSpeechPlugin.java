@@ -185,11 +185,17 @@ public class MyJarvisSpeechPlugin extends Plugin {
                 String lower = heard.toLowerCase(Locale.ROOT);
                 int index = lower.indexOf(wakeWord);
                 if (index >= 0) {
+                    // Pause the wake recognizer before handing the utterance to the
+                    // command pipeline. This prevents SpeechRecognizer instances
+                    // from fighting over the microphone during the command turn.
+                    wakeWordActive = false;
+                    stopRecognizer();
                     String command = heard.substring(index + wakeWord.length()).trim();
                     JSObject o = new JSObject();
                     o.put("text", command);
                     o.put("wakeWord", wakeWord);
                     notifyListeners("wake", o);
+                    return;
                 }
                 if (wakeWordActive) main.postDelayed(() -> startWakeRecognizer(), 250);
             }
