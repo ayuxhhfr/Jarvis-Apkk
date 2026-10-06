@@ -30,9 +30,58 @@ export async function validateAndroidApiKey(key: string): Promise<void> {
   const value = key.trim();
   if (!value) throw new Error("Gemini API key is required.");
 
-  // Validate the exact runtime path the APK actually uses:
-  // Gemini Live WebSocket + the configured 3.1 Live Preview model.
-  // A normal REST generateContent check is not enough to prove Live access.
+  // Validate both runtime paths used by the APK:
+  // 1) the REST brain, and 2) Gemini Live voice setup.
+  const brainModel = CHAT_MODEL;
+  const brainUrl =
+    "https://generativelanguage.googleapis.com/v1beta/models/" +
+    encodeURIComponent(brainModel) +
+    ":generateContent";
+
+  try {
+    const brainRes = await fetch(brainUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": value,
+      },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: "Reply with OK." }] }],
+        generationConfig: {
+          thinkingConfig: { thinkingLevel: "minimal" },
+          maxOutputTokens: 4,
+        },
+      }),
+    });
+
+    const brainRaw = await brainRes.text();
+    let brainData: any = {};
+    try { brainData = brainRaw ? JSON.parse(brainRaw) : {}; } catch {}
+
+    if (!brainRes.ok) {
+      throw new Error(
+        brainData?.error?.message ||
+        `Gemini brain check failed (HTTP ${brainRes.status}).`
+      );
+    }
+
+    const brainText = brainData?.candidates?.[0]?.content?.parts
+      ?.map((part: any) => part?.text || "")
+      .join("")
+      .trim() || "";
+
+    if (!brainText) {
+      throw new Error(
+        `Gemini brain check returned no text (finishReason: ${brainData?.candidates?.[0]?.finishReason || "unknown"}).`
+      );
+    }
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error("Could not reach Gemini. Check your internet connection and try again.");
+    }
+    throw error;
+  }
+
   await new Promise<void>((resolve, reject) => {
     const model = "gemini-3.1-flash-live-preview";
     const url =
@@ -41,11 +90,12 @@ export async function validateAndroidApiKey(key: string): Promise<void> {
       "?key=" + encodeURIComponent(value);
 
     let settled = false;
+    let socket: WebSocket | null = null;
     const finish = (error?: Error) => {
       if (settled) return;
       settled = true;
       window.clearTimeout(timer);
-      try { socket.close(); } catch {}
+      try { socket?.close(); } catch {}
       error ? reject(error) : resolve();
     };
 
@@ -53,10 +103,10 @@ export async function validateAndroidApiKey(key: string): Promise<void> {
       finish(new Error("Gemini Live model check timed out after 5s."));
     }, 5000);
 
-    const socket = new WebSocket(url);
+    socket = new WebSocket(url);
 
     socket.onopen = () => {
-      socket.send(JSON.stringify({
+      socket?.send(JSON.stringify({
         setup: {
           model: `models/${model}`,
           generationConfig: { responseModalities: ["AUDIO"] },
@@ -91,7 +141,7 @@ export async function validateAndroidApiKey(key: string): Promise<void> {
     };
 
     socket.onerror = () => {
-      finish(new Error("Could not connect to Gemini Live for model verification."));
+      finish(new Error("Gemini Live connection failed during verification."));
     };
 
     socket.onclose = (event) => {
@@ -110,7 +160,6 @@ export async function validateAndroidApiKey(key: string): Promise<void> {
 
   setAndroidApiKey(value);
 }
-
 export async function generateAndroidReply(
   message: string,
   systemInstruction: string,
