@@ -253,10 +253,14 @@ export function useAssistant() {
   // Gemini's START_OF_ACTIVITY_INTERRUPTS server VAD must keep receiving the
   // user's new utterance so the complete barge-in command is preserved.
   const handleAndroidBargeIn = useCallback(() => {
+    // Stop local audio immediately and suppress any in-flight model packets.
+    // Do not send audioStreamEnd here; the user's new speech must keep flowing
+    // until the server VAD detects the new turn boundary.
+    geminiLive.prepareForBargeIn();
     stopPlayback();
     setAssistantSpeaking(false);
     setState("listening");
-  }, [stopPlayback, setAssistantSpeaking]);
+  }, [geminiLive, stopPlayback, setAssistantSpeaking]);
 
   // Connect to Gemini Live on mount with temporal context
   useEffect(() => {
