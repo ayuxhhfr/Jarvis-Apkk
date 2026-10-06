@@ -266,8 +266,6 @@ export default function App() {
             onOpenSettings={() => setIsSettingsOpen(true)}
             onOpenBrowser={() => browserManager.open()}
             onOpenChats={() => setIsChatsOpen(true)}
-            wakeWordActive={wakeWordActive}
-            onToggleWakeWord={toggleWakeWord}
           />
 
           {/* Compact runtime dialog */}
@@ -434,8 +432,6 @@ export default function App() {
           <footer className="jarvis-safe-bottom w-full z-30 pt-2 pb-[max(env(safe-area-inset-bottom),0.5rem)]">
             <InputBar
               onSendMessage={sendTextMessage}
-              onToggleMic={toggleListening}
-              isMicActive={isMicActive}
               state={state}
             />
           </footer>
