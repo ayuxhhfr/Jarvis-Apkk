@@ -7,6 +7,7 @@ interface JarvisSpeechPlugin {
   stopPcmCapture(): Promise<void>;
   speak(options: { text: string }): Promise<void>;
   stopSpeaking(): Promise<void>;
+  getClipboard(): Promise<{ text: string }>;
   addListener(
     eventName:
       | "result"
@@ -465,6 +466,16 @@ export async function startAndroidPcmCapture(
     void speechListener?.remove().catch(() => {});
     void errorListener?.remove().catch(() => {});
   };
+}
+
+export async function readAndroidClipboard(): Promise<string> {
+  if (!isAndroidApp()) return "";
+  try {
+    const result = await JarvisSpeech.getClipboard();
+    return String(result?.text || "");
+  } catch {
+    return "";
+  }
 }
 
 export async function speakAndroid(text: string): Promise<void> {
