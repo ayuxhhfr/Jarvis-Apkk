@@ -405,7 +405,7 @@ async function startServer() {
               // @ts-ignore
               tools: [{ functionDeclarations: ALL_FUNCTION_DECLARATIONS }],
             }),
-          },
+          } as any,
           callbacks: {
             onmessage: (message: LiveServerMessage) => {
               if (clientWs.readyState !== WebSocket.OPEN) return;
@@ -738,7 +738,7 @@ async function startServer() {
           streamResponse = await ai.models.generateContentStream({
             model: requestedBrainModel,
             contents,
-            config: managerConfig,
+            config: managerConfig as any,
           });
           break;
         } catch (managerError: any) {
@@ -755,7 +755,7 @@ async function startServer() {
             streamResponse = await ai.models.generateContentStream({
                 model: managerModel,
                 contents,
-                config: fallbackConfig,
+                config: fallbackConfig as any,
               });
               break;
             }
