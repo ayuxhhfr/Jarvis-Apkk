@@ -108,6 +108,11 @@ export async function openAndroidAppPackage(packageName: string): Promise<void> 
   await AndroidApp.openApp({ packageName });
 }
 
+export async function resumeAndroidWakeWord(wakeWord = "jarvis"): Promise<void> {
+  if (!isAndroidNative()) return;
+  await AndroidApp.startWakeWord({ wakeWord });
+}
+
 export async function startAndroidWakeWord(
   wakeWord = "jarvis",
   onWake: (command: string) => void,
