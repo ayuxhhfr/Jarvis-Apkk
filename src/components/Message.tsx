@@ -108,3 +108,5 @@ export const Message = React.memo(MessageComponent);base64,${message.image.data}
     </div>
   );
 };
+
+export const Message = React.memo(MessageComponent);
