@@ -390,7 +390,7 @@ public class MyJarvisSpeechPlugin extends Plugin {
                     }
                 }, "JarvisNativeMic");
 
-                pcmThread.setPriority(Thread.MAX_PRIORITY);
+                try { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO); } catch (Throwable ignored) {}
                 pcmThread.start();
                 call.resolve();
             } catch (Throwable e) {
