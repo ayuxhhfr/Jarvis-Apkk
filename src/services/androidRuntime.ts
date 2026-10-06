@@ -63,7 +63,7 @@ export async function validateAndroidApiKey(key: string): Promise<void> {
         contents: [{ role: "user", parts: [{ text: "Reply with OK." }] }],
         generationConfig: {
           thinkingConfig: { thinkingLevel: "minimal" },
-          maxOutputTokens: 4,
+          maxOutputTokens: 16,
         },
       }),
     });
