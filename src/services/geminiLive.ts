@@ -208,12 +208,18 @@ export class GeminiLiveService {
             realtimeInputConfig: {
               automaticActivityDetection: {
                 disabled: false,
-                startOfSpeechSensitivity: "START_SENSITIVITY_LOW",
+                startOfSpeechSensitivity: "START_SENSITIVITY_HIGH",
                 endOfSpeechSensitivity: "END_SENSITIVITY_LOW",
-                prefixPaddingMs: 120,
-                silenceDurationMs: 500,
+                prefixPaddingMs: 80,
+                // Hybrid VAD: native Android client VAD sends audioStreamEnd
+                // as soon as ~480ms of silence is observed. This server value
+                // remains the fallback if the local VAD misses the endpoint.
+                silenceDurationMs: 450,
               },
-              activityHandling: "NO_INTERRUPTION",
+              // Real barge-in: user speech must immediately cancel queued/model
+              // output. AEC/NS/AGC on the native mic prevents speaker leakage
+              // from being treated as intentional user speech.
+              activityHandling: "START_OF_ACTIVITY_INTERRUPTS",
             },
             // Keep Live sessions resumable when Google rotates the WebSocket.
             sessionResumption: this.sessionResumptionHandle
@@ -570,6 +576,16 @@ export class GeminiLiveService {
       }));
     } else {
       this.ws.send(JSON.stringify({ type: "speak", text }));
+    }
+  }
+
+  /** Finalize the current user audio turn without marking it as a barge-in. */ 
+  public sendAudioStreamEnd(): void {
+    if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (isAndroidApp()) {
+      this.ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }));
+    } else {
+      this.ws.send(JSON.stringify({ audioStreamEnd: true }));
     }
   }
 
