@@ -17,14 +17,11 @@ interface HeaderProps {
   onOpenSettings: () => void;
   onOpenBrowser?: () => void;
   onOpenChats?: () => void;
-  wakeWordActive?: boolean;
-  onToggleWakeWord?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   assistantName = "JARVIS", status, screenShareStatus, onStartScreenShare,
   onStopScreenShare, onOpenInNewTab, onOpenSettings, onOpenBrowser, onOpenChats,
-  wakeWordActive = false, onToggleWakeWord,
 }) => {
   const isSharing = screenShareStatus?.state === "SHARING";
   const isRequesting = screenShareStatus?.state === "REQUESTING";
