@@ -58,6 +58,8 @@ jobs:
           s=open(p).read()
           if "android.permission.RECORD_AUDIO" not in s:
               s=s.replace("<application", '    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <application', 1)
+          if "android.permission.MODIFY_AUDIO_SETTINGS" not in s:
+              s=s.replace("<application", '    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <application', 1)
           open(p,"w").write(s)
           PY2
       - run: cd android && ./gradlew assembleDebug --no-daemon --build-cache --parallel
