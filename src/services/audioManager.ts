@@ -29,7 +29,9 @@ export class AudioManager {
   // Keep startup jitter low. Gemini Live is a streaming API; a large client
   // buffer makes JARVIS feel slow, while no buffer causes gaps on mobile WebViews.
   // 60ms is a small compromise for smooth startup without the old 120ms delay.
-  private readonly STREAM_START_BUFFER_SECONDS = 0.06;
+  // Give slower Android WebViews enough scheduling headroom to absorb
+  // short main-thread stalls without making voice feel noticeably delayed.
+  private readonly STREAM_START_BUFFER_SECONDS = 0.12;
 
   private isAssistantSpeaking: boolean = false;
 
@@ -258,12 +260,17 @@ export class AudioManager {
       const currentTime = ctx.currentTime;
       let startTime = Math.max(currentTime, this.nextPlayTime);
 
+      // Never allow the realtime stream to schedule farther than necessary.
+      // A small safety lead prevents late chunks from producing audible gaps
+      // when the Android UI thread is briefly busy.
+      const safetyLead = 0.012;
+
       if (!this.streamPrimed && this.activeSources.length === 0) {
         startTime = Math.max(startTime, currentTime + this.STREAM_START_BUFFER_SECONDS);
         this.streamPrimed = true;
-      } else if (startTime < currentTime + 0.008) {
+      } else if (startTime < currentTime + safetyLead) {
         // Never intentionally add a large hole when a network chunk arrives late.
-        startTime = currentTime + 0.008;
+        startTime = currentTime + safetyLead;
       }
 
       source.start(startTime);
@@ -424,31 +431,31 @@ export class AudioManager {
   }
 
   private startLevelLoop(): void {
+    // Audio playback is realtime independently of this meter. Do not spend
+    // a 60fps JS callback on an effect that only drives the orb visualization.
     const update = () => {
       if (this.outputAnalyser && this.activeSources.length > 0) {
         const data = new Uint8Array(this.outputAnalyser.frequencyBinCount);
         this.outputAnalyser.getByteFrequencyData(data);
         let sum = 0;
-        for (let i = 0; i < data.length; i++) {
-          sum += data[i];
-        }
+        for (let i = 0; i < data.length; i++) sum += data[i];
         const avg = sum / data.length;
         this.outputLevel = Math.min(1, (avg / 255) * 1.8);
       } else if (this.activeSources.length === 0) {
         this.outputLevel = 0;
       }
 
-      this.animFrameId = requestAnimationFrame(update);
+      this.animFrameId = window.setTimeout(update, 50) as unknown as number;
     };
 
     if (typeof window !== "undefined") {
-      this.animFrameId = requestAnimationFrame(update);
+      this.animFrameId = window.setTimeout(update, 50) as unknown as number;
     }
   }
 
   public cleanup(): void {
     if (this.animFrameId !== null) {
-      cancelAnimationFrame(this.animFrameId);
+      window.clearTimeout(this.animFrameId);
       this.animFrameId = null;
     }
     this.stopPlayback();
