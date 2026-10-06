@@ -7,14 +7,24 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Capacitor } from "@capacitor/core";
 import { audioManager, AudioChunkCallback, InterruptCallback } from "../services/audioManager";
 import { requestAndroidMicrophonePermission } from "../services/nativePermissions";
+import { startAndroidPcmCapture } from "../services/androidRuntime";
 
 export function useVoice() {
   const [isMicActive, setIsMicActive] = useState<boolean>(false);
   const [micLevel, setMicLevel] = useState<number>(0);
   const [outputLevel, setOutputLevel] = useState<number>(0);
   const [permissionError, setPermissionError] = useState<string | null>(null);
+  const nativePcmCleanupRef = useRef<(() => void) | null>(null);
+  const nativeMicLevelRef = useRef(0);
+  const assistantSpeakingRef = useRef(false);
+  const interruptRef = useRef<InterruptCallback | null>(null);
+  const lastBargeInAtRef = useRef(0);
 
-  const startListening = useCallback(async (onAudioChunk?: AudioChunkCallback, onInterrupt?: InterruptCallback) => {
+  const startListening = useCallback(async (
+    onAudioChunk?: AudioChunkCallback,
+    onInterrupt?: InterruptCallback,
+    onSpeechEnd?: () => void,
+  ) => {
     try {
       setPermissionError(null);
       if (onAudioChunk) {
@@ -33,7 +43,38 @@ export function useVoice() {
         }
       }
 
-      await audioManager.startMicrophone();
+      if (Capacitor.getPlatform() === "android") {
+        // Android voice mode uses the native VOICE_COMMUNICATION audio path
+        // instead of WebView AudioContext. This gives us platform AEC/NS/AGC,
+        // lower startup jitter, and stable 16 kHz PCM chunks on low-end phones.
+        interruptRef.current = onInterrupt || null;
+        nativePcmCleanupRef.current?.();
+        nativePcmCleanupRef.current = await startAndroidPcmCapture(
+          (base64Pcm) => {
+            onAudioChunk?.(base64Pcm);
+          },
+          (speaking, rms) => {
+            nativeMicLevelRef.current = Math.min(1, rms * 7);
+
+            if (speaking && assistantSpeakingRef.current && onInterrupt) {
+              const now = Date.now();
+              // AEC/NS should remove speaker leakage, but keep a tiny guard so
+              // one residual echo burst cannot trigger multiple interruptions.
+              if (now - lastBargeInAtRef.current > 900) {
+                lastBargeInAtRef.current = now;
+                onInterrupt();
+              }
+            }
+
+            if (!speaking) {
+              onSpeechEnd?.();
+            }
+          },
+          (message) => setPermissionError(message),
+        );
+      } else {
+        await audioManager.startMicrophone();
+      }
       setIsMicActive(true);
     } catch (err) {
       console.error("Microphone access error:", err);
@@ -56,7 +97,11 @@ export function useVoice() {
   }, []);
 
   const stopListening = useCallback(() => {
+    nativePcmCleanupRef.current?.();
+    nativePcmCleanupRef.current = null;
     audioManager.stopMicrophone();
+    interruptRef.current = null;
+    assistantSpeakingRef.current = false;
     setIsMicActive(false);
     setMicLevel(0);
   }, []);
@@ -67,6 +112,7 @@ export function useVoice() {
   }, []);
 
   const setAssistantSpeaking = useCallback((speaking: boolean) => {
+    assistantSpeakingRef.current = speaking;
     audioManager.setAssistantSpeaking(speaking);
   }, []);
 
@@ -89,10 +135,13 @@ export function useVoice() {
     const updateLevels = () => {
       if (cancelled) return;
       const levels = audioManager.getLevels();
+      const mic = Capacitor.getPlatform() === "android"
+        ? nativeMicLevelRef.current
+        : levels.micLevel;
 
-      if (Math.abs(levels.micLevel - lastMic) > 0.018) {
-        lastMic = levels.micLevel;
-        setMicLevel(levels.micLevel);
+      if (Math.abs(mic - lastMic) > 0.018) {
+        lastMic = mic;
+        setMicLevel(mic);
       }
       if (Math.abs(levels.outputLevel - lastOutput) > 0.018) {
         lastOutput = levels.outputLevel;
@@ -112,6 +161,8 @@ export function useVoice() {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      nativePcmCleanupRef.current?.();
+      nativePcmCleanupRef.current = null;
       audioManager.cleanup();
     };
   }, []);
