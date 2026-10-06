@@ -151,6 +151,8 @@ export class GeminiLiveService {
           "?key=" + encodeURIComponent(apiKey);
 
         this.ws = new WebSocket(wsUrl);
+        // Keep Gemini JSON audio frames ordered in the hot path.
+        this.ws.binaryType = "arraybuffer";
         // Fail fast on Android: a TCP/TLS WebSocket can open without the
         // Gemini Live session actually completing its setup handshake.
         this.handshakeTimer = window.setTimeout(() => {
@@ -170,6 +172,7 @@ export class GeminiLiveService {
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
         const host = window.location.host;
         this.ws = new WebSocket(`${protocol}//${host}/api/live-ws`);
+        this.ws.binaryType = "arraybuffer";
       }
 
       this.ws.onopen = () => {
@@ -200,6 +203,18 @@ export class GeminiLiveService {
             },
             inputAudioTranscription: {},
             outputAudioTranscription: {},
+            // Android speaker echo can look like barge-in. Keep automatic VAD
+            // for user-turn detection but never let it interrupt active output.
+            realtimeInputConfig: {
+              automaticActivityDetection: {
+                disabled: false,
+                startOfSpeechSensitivity: "START_SENSITIVITY_LOW",
+                endOfSpeechSensitivity: "END_SENSITIVITY_LOW",
+                prefixPaddingMs: 120,
+                silenceDurationMs: 500,
+              },
+              activityHandling: "NO_INTERRUPTION",
+            },
             // Keep Live sessions resumable when Google rotates the WebSocket.
             sessionResumption: this.sessionResumptionHandle
               ? { handle: this.sessionResumptionHandle }
@@ -228,15 +243,14 @@ export class GeminiLiveService {
         }
       };
 
-      this.ws.onmessage = async (event) => {
+      this.ws.onmessage = (event) => {
         try {
-          // Android WebView normally delivers text frames as strings, but
-          // tolerate Blob/ArrayBuffer frames so a valid setupComplete cannot
-          // be silently lost on a device-specific WebView implementation.
+          // binaryType=arraybuffer avoids an async Blob.text() hop for every
+          // Live packet and preserves the order of audio frames.
           let raw = event.data;
-          if (raw instanceof Blob) raw = await raw.text();
           if (raw instanceof ArrayBuffer) raw = new TextDecoder().decode(raw);
-          const msg = JSON.parse(String(raw));
+          if (typeof raw !== "string") return;
+          const msg = JSON.parse(raw);
 
           // Android: Google's raw Live API protocol.
           if (isAndroidApp()) {
