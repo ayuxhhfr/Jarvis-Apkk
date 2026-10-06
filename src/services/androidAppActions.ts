@@ -130,3 +130,32 @@ export async function startAndroidWakeWord(
     void errorListener.remove().catch(() => {});
   };
 }
+
+
+export async function tryOpenAndroidAppCommand(text: string): Promise<InstalledAndroidApp | null> {
+  if (!isAndroidNative()) return null;
+
+  const cleaned = text
+    .trim()
+    .replace(/^(please\s+)?(jarvis[,.]?\s*)/i, "")
+    .replace(/^(hey\s+)?jarvis[,.]?\s*/i, "")
+    .trim();
+
+  const match = cleaned.match(
+    /^(?:open|launch|start|run|go\s+to|take\s+me\s+to|show\s+me)\s+(?:the\s+)?(.+?)(?:\s+app)?[.!?]*$/i
+  );
+  if (!match) return null;
+
+  const target = match[1].trim();
+  if (!target || /^(a|an|the)\s+(app|application)$/i.test(target)) return null;
+
+  // URLs and explicit websites belong to the JARVIS browser, not the native app launcher.
+  if (/\.(com|in|org|net|co|io)(\/|$)/i.test(target) || /^https?:\/\//i.test(target)) return null;
+
+  const apps = await getInstalledAndroidApps();
+  const app = findBestApp(target, apps);
+  if (!app) return null;
+
+  await AndroidApp.openApp({ packageName: app.packageName, query: app.name });
+  return app;
+}
