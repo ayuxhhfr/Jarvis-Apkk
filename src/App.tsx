@@ -176,19 +176,16 @@ export default function App() {
         ? returnEvent.suggestedGreeting.ira
         : returnEvent.suggestedGreeting.jarvis;
 
-      console.log("[JARVIS Return]
-Automatic return greeting triggered.");
+      console.log("[JARVIS Return]\nAutomatic return greeting triggered.");
 
       // 3. Trigger the greeting immediately via the assistant's existing output path
       deliverGreeting(greetingText);
 
       // 4. Mark the event as consumed to prevent repeats
       sessionService.consumeReturnEvent();
-      console.log("[JARVIS Return]
-Return greeting consumed.");
+      console.log("[JARVIS Return]\nReturn greeting consumed.");
     } else {
-      console.log("[JARVIS Return]
-No return greeting required.");
+      console.log("[JARVIS Return]\nNo return greeting required.");
     }
   }, [deliverGreeting, settings.voice, settings.selectedProfileId]);
 
