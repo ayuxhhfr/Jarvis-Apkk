@@ -20,18 +20,20 @@ export class AudioManager {
   private scriptProcessor: ScriptProcessorNode | null = null;
   private micAnalyser: AnalyserNode | null = null;
   private outputAnalyser: AnalyserNode | null = null;
+  private outputAnalyserData: Uint8Array | null = null;
   private masterGain: GainNode | null = null;
 
   private activeSources: AudioBufferSourceNode[] = [];
   private nextPlayTime: number = 0;
   private streamPrimed: boolean = false;
+  private streamIdleTimer: number | null = null;
 
-  // Keep startup jitter low. Gemini Live is a streaming API; a large client
-  // buffer makes JARVIS feel slow, while no buffer causes gaps on mobile WebViews.
-  // 60ms is a small compromise for smooth startup without the old 120ms delay.
-  // Give slower Android WebViews enough scheduling headroom to absorb
-  // short main-thread stalls without making voice feel noticeably delayed.
-  private readonly STREAM_START_BUFFER_SECONDS = 0.12;
+  // A modest startup jitter cushion absorbs normal mobile WebView/network
+  // bursts. The stream stays primed across tiny source gaps so it does not
+  // repeatedly add another startup delay in the middle of a sentence.
+  private readonly STREAM_START_BUFFER_SECONDS = 0.20;
+  private readonly STREAM_SAFETY_LEAD_SECONDS = 0.018;
+  private readonly STREAM_IDLE_RESET_MS = 240;
 
   private isAssistantSpeaking: boolean = false;
 
@@ -42,9 +44,6 @@ export class AudioManager {
   private outputLevel: number = 0;
   private animFrameId: number | null = null;
 
-  // Interruption debounce / threshold
-  private consecutiveSpeechFrames: number = 0;
-  private speechThreshold: number = 0.06;
 
   // Pending audio queue if browser blocks automatic playback before user gesture
   private pendingStartupAudio: { base64Data: string; onEnd?: () => void } | null = null;
@@ -64,9 +63,8 @@ export class AudioManager {
 
   public setAssistantSpeaking(speaking: boolean) {
     this.isAssistantSpeaking = speaking;
-    if (!speaking) {
-      this.consecutiveSpeechFrames = 0;
-    }
+    // Playback interruption is intentionally not driven by local RMS.
+    // Speaker echo can otherwise kill a valid Gemini Live response.
   }
 
   public async startMicrophone(): Promise<void> {
@@ -113,19 +111,8 @@ export class AudioManager {
         const rms = Math.sqrt(sumSquares / inputData.length);
         this.micLevel = Math.min(1, rms * 5);
 
-        if (this.isAssistantSpeaking && rms > this.speechThreshold) {
-          this.consecutiveSpeechFrames++;
-          if (this.consecutiveSpeechFrames >= 2) {
-            this.consecutiveSpeechFrames = 0;
-            this.stopPlayback();
-            if (this.onInterrupt) {
-              this.onInterrupt();
-            }
-          }
-        } else {
-          this.consecutiveSpeechFrames = 0;
-        }
-
+        // Never stop playback from local RMS. Android speaker leakage is
+        // not reliable enough to distinguish echo from real barge-in.
         const pcm16 = new Int16Array(inputData.length);
         for (let i = 0; i < inputData.length; i++) {
           const s = Math.max(-1, Math.min(1, inputData[i]));
@@ -193,6 +180,7 @@ export class AudioManager {
       this.outputAnalyser = this.outputAudioCtx.createAnalyser();
       this.outputAnalyser.fftSize = 256;
       this.outputAnalyser.smoothingTimeConstant = 0.5;
+      this.outputAnalyserData = new Uint8Array(this.outputAnalyser.frequencyBinCount);
 
       this.masterGain.connect(this.outputAnalyser);
       this.outputAnalyser.connect(this.outputAudioCtx.destination);
@@ -213,6 +201,11 @@ export class AudioManager {
 
     try {
       const ctx = this.ensureOutputContext();
+
+      if (this.streamIdleTimer !== null) {
+        window.clearTimeout(this.streamIdleTimer);
+        this.streamIdleTimer = null;
+      }
 
       if (ctx.state === "suspended") {
         ctx.resume().catch(() => {});
@@ -260,17 +253,11 @@ export class AudioManager {
       const currentTime = ctx.currentTime;
       let startTime = Math.max(currentTime, this.nextPlayTime);
 
-      // Never allow the realtime stream to schedule farther than necessary.
-      // A small safety lead prevents late chunks from producing audible gaps
-      // when the Android UI thread is briefly busy.
-      const safetyLead = 0.012;
-
-      if (!this.streamPrimed && this.activeSources.length === 0) {
+      if (!this.streamPrimed) {
         startTime = Math.max(startTime, currentTime + this.STREAM_START_BUFFER_SECONDS);
         this.streamPrimed = true;
-      } else if (startTime < currentTime + safetyLead) {
-        // Never intentionally add a large hole when a network chunk arrives late.
-        startTime = currentTime + safetyLead;
+      } else if (startTime < currentTime + this.STREAM_SAFETY_LEAD_SECONDS) {
+        startTime = currentTime + this.STREAM_SAFETY_LEAD_SECONDS;
       }
 
       source.start(startTime);
@@ -290,12 +277,16 @@ export class AudioManager {
         }
 
         if (this.activeSources.length === 0) {
-          this.nextPlayTime = ctx.currentTime;
-          this.streamPrimed = false;
           this.outputLevel = 0;
-          if (onEnd) {
-            onEnd();
-          }
+          if (this.streamIdleTimer !== null) window.clearTimeout(this.streamIdleTimer);
+          this.streamIdleTimer = window.setTimeout(() => {
+            this.streamIdleTimer = null;
+            if (this.activeSources.length === 0 && this.outputAudioCtx) {
+              this.nextPlayTime = this.outputAudioCtx.currentTime;
+              this.streamPrimed = false;
+            }
+          }, this.STREAM_IDLE_RESET_MS);
+          if (onEnd) onEnd();
         }
       };
     } catch (err) {
@@ -399,6 +390,10 @@ export class AudioManager {
 
     this.activeSources = [];
     this.pendingStartupAudio = null;
+    if (this.streamIdleTimer !== null) {
+      window.clearTimeout(this.streamIdleTimer);
+      this.streamIdleTimer = null;
+    }
     this.streamPrimed = false;
 
     if (this.outputAudioCtx) {
@@ -435,7 +430,8 @@ export class AudioManager {
     // a 60fps JS callback on an effect that only drives the orb visualization.
     const update = () => {
       if (this.outputAnalyser && this.activeSources.length > 0) {
-        const data = new Uint8Array(this.outputAnalyser.frequencyBinCount);
+        const data = this.outputAnalyserData || new Uint8Array(this.outputAnalyser.frequencyBinCount);
+        this.outputAnalyserData = data;
         this.outputAnalyser.getByteFrequencyData(data);
         let sum = 0;
         for (let i = 0; i < data.length; i++) sum += data[i];
@@ -457,6 +453,10 @@ export class AudioManager {
     if (this.animFrameId !== null) {
       window.clearTimeout(this.animFrameId);
       this.animFrameId = null;
+    }
+    if (this.streamIdleTimer !== null) {
+      window.clearTimeout(this.streamIdleTimer);
+      this.streamIdleTimer = null;
     }
     this.stopPlayback();
     this.stopMicrophone();
