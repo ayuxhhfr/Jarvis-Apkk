@@ -579,6 +579,11 @@ export class GeminiLiveService {
     }
   }
 
+  /** Locally suppress any already-arriving model audio while server VAD processes a barge-in. */
+  public prepareForBargeIn(): void {
+    this.voiceOutputActive = false;
+  }
+
   /** Finalize the current user audio turn without marking it as a barge-in. */ 
   public sendAudioStreamEnd(): void {
     if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
