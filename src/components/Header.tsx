@@ -3,7 +3,7 @@
  * Displays branding, compact connection status, memory access and controls.
  */
 import React from "react";
-import { SlidersHorizontal, Globe, Monitor, X, Loader2, ExternalLink, Brain, MessageSquare } from "lucide-react";
+import { SlidersHorizontal, Globe, Monitor, X, Loader2, ExternalLink, Brain, MessageSquare, Mic2 } from "lucide-react";
 import { ConnectionStatus } from "../types/assistant";
 import { ScreenShareStatus } from "../types/screenShare";
 
@@ -17,11 +17,14 @@ interface HeaderProps {
   onOpenSettings: () => void;
   onOpenBrowser?: () => void;
   onOpenChats?: () => void;
+  wakeWordActive?: boolean;
+  onToggleWakeWord?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   assistantName = "JARVIS", status, screenShareStatus, onStartScreenShare,
   onStopScreenShare, onOpenInNewTab, onOpenSettings, onOpenBrowser, onOpenChats,
+  wakeWordActive = false, onToggleWakeWord,
 }) => {
   const isSharing = screenShareStatus?.state === "SHARING";
   const isRequesting = screenShareStatus?.state === "REQUESTING";
@@ -63,6 +66,8 @@ export const Header: React.FC<HeaderProps> = ({
         <div className={`flex items-center justify-center sm:gap-2 p-1.5 sm:px-2.5 sm:py-1 rounded-full bg-white/[0.03] border border-white/[0.06] text-[10px] sm:text-xs font-mono shrink-0`} title={`Connection Status: ${statusInfo.label}`}>
           <span className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${statusInfo.dot}`} /><span className={`hidden sm:inline ${statusInfo.text}`}>{statusInfo.label}</span>
         </div>
+
+        {onToggleWakeWord && <button onClick={onToggleWakeWord} className={`relative p-2 rounded-lg transition-all border cursor-pointer ${wakeWordActive ? "text-[#00ffaa] bg-[#00ffaa]/[0.08] border-[#00ffaa]/25 shadow-[0_0_14px_rgba(0,255,170,0.12)]" : "text-neutral-400 border-transparent hover:text-[#00ffaa] hover:bg-white/[0.06] hover:border-white/[0.08]"}`} title={wakeWordActive ? "Wake word active: say JARVIS" : "Enable JARVIS wake word"} aria-label={wakeWordActive ? "Disable JARVIS wake word" : "Enable JARVIS wake word"}><Mic2 className="w-4 h-4" />{wakeWordActive && <span className="absolute -right-0.5 -top-0.5 w-1.5 h-1.5 rounded-full bg-[#00ffaa] shadow-[0_0_7px_#00ffaa]" />}</button>}
 
         {onOpenChats && <button onClick={onOpenChats} className="p-2 rounded-lg text-neutral-400 hover:text-[#00ffaa] hover:bg-white/[0.06] active:scale-95 transition-all border border-transparent hover:border-white/[0.08] cursor-pointer" title="Conversations" aria-label="Conversations"><MessageSquare className="w-4 h-4" /></button>}
 
