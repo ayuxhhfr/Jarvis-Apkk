@@ -214,7 +214,7 @@ export class GeminiLiveService {
                 // Hybrid VAD: native Android client VAD sends audioStreamEnd
                 // as soon as ~480ms of silence is observed. This server value
                 // remains the fallback if the local VAD misses the endpoint.
-                silenceDurationMs: 450,
+                silenceDurationMs: 650,
               },
               // Real barge-in: user speech must immediately cancel queued/model
               // output. AEC/NS/AGC on the native mic prevents speaker leakage
