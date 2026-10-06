@@ -293,8 +293,9 @@ public class MyJarvisSpeechPlugin extends Plugin {
                     return;
                 }
 
-                pcmRecorder = record;
-                final int sessionId = record.getAudioSessionId();
+                final AudioRecord activeRecord = record;
+                pcmRecorder = activeRecord;
+                final int sessionId = activeRecord.getAudioSessionId();
 
                 // Do not stack explicit AEC/NS/AGC effects. The Android
                 // speech-oriented input source handles the vendor voice path;
@@ -324,10 +325,10 @@ public class MyJarvisSpeechPlugin extends Plugin {
                     boolean speechActive = false;
 
                     try {
-                        record.startRecording();
+                        activeRecord.startRecording();
 
-                        while (pcmCaptureActive && pcmRecorder == record) {
-                            int read = record.read(buffer, 0, buffer.length, AudioRecord.READ_BLOCKING);
+                        while (pcmCaptureActive && pcmRecorder == activeRecord) {
+                            int read = activeRecord.read(buffer, 0, buffer.length, AudioRecord.READ_BLOCKING);
                             if (read <= 0) continue;
 
                             double sumSquares = 0.0;
@@ -386,7 +387,7 @@ public class MyJarvisSpeechPlugin extends Plugin {
                             notifyListeners("audioCaptureError", error);
                         }
                     } finally {
-                        try { record.stop(); } catch (Throwable ignored) {}
+                        try { activeRecord.stop(); } catch (Throwable ignored) {}
                     }
                 }, "JarvisNativeMic");
 
