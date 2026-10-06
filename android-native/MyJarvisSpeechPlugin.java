@@ -17,10 +17,20 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.PermissionState;
 import java.util.ArrayList;
 import java.util.Locale;
 
-@CapacitorPlugin(name = "MyJarvisSpeech")
+@CapacitorPlugin(
+        name = "MyJarvisSpeech",
+        permissions = {
+                @Permission(
+                        alias = "microphone",
+                        strings = { Manifest.permission.RECORD_AUDIO }
+                )
+        }
+)
 public class MyJarvisSpeechPlugin extends Plugin {
     private final Handler main = new Handler(Looper.getMainLooper());
     private SpeechRecognizer recognizer;
@@ -36,6 +46,30 @@ public class MyJarvisSpeechPlugin extends Plugin {
                 tts.setSpeechRate(0.96f);
             }
         }));
+    }
+
+    @PluginMethod
+    public void requestMicrophonePermission(PluginCall call) {
+        if (getPermissionState("microphone") == PermissionState.GRANTED) {
+            JSObject result = new JSObject();
+            result.put("granted", true);
+            call.resolve(result);
+            return;
+        }
+
+        requestPermissionForAlias("microphone", call, "microphonePermissionCallback");
+    }
+
+    @com.getcapacitor.annotation.PermissionCallback
+    private void microphonePermissionCallback(PluginCall call) {
+        boolean granted = getPermissionState("microphone") == PermissionState.GRANTED;
+        JSObject result = new JSObject();
+        result.put("granted", granted);
+        if (granted) {
+            call.resolve(result);
+        } else {
+            call.reject("Microphone permission denied");
+        }
     }
 
     @PluginMethod
