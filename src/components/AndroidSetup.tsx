@@ -10,7 +10,7 @@ import {
   Sparkles,
   Loader2,
 } from "lucide-react";
-import { validateAndroidApiKey } from "../services/androidRuntime";
+import { isAndroidApp, readAndroidClipboard, validateAndroidApiKey } from "../services/androidRuntime";
 
 interface AndroidSetupProps {
   onComplete: () => void;
@@ -25,7 +25,9 @@ export const AndroidSetup: React.FC<AndroidSetupProps> = ({ onComplete }) => {
 
   const handlePaste = async () => {
     try {
-      const value = await navigator.clipboard.readText();
+      const value = isAndroidApp()
+        ? await readAndroidClipboard()
+        : await navigator.clipboard.readText();
       if (value) {
         setApiKey(value.trim());
         setStatus("");
@@ -33,7 +35,7 @@ export const AndroidSetup: React.FC<AndroidSetupProps> = ({ onComplete }) => {
         window.setTimeout(() => setPasted(false), 1200);
       }
     } catch {
-      setStatus("Clipboard access was unavailable. Paste the key manually.");
+      setStatus("Clipboard access is unavailable. Use the Android Paste action or enter the key manually.");
     }
   };
 
