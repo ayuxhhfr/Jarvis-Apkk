@@ -122,7 +122,7 @@ export const AndroidSetup: React.FC<AndroidSetupProps> = ({ onComplete }) => {
                 aria-label={showKey ? "Hide API key" : "Show API key"}
                 className="absolute right-3 top-1/2 -translate-y-1/2 rounded-xl p-2 text-neutral-500 transition hover:bg-white/[0.05] hover:text-white"
               >
-                {showKey ? <EyeOff className="h-4.5 w-4.5" /> : <Eye className="h-4.5 w-4.5" />}
+                {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4.5 w-4.5" />}
               </button>
             </div>
 
