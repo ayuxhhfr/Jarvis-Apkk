@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useRef } from "react";
-import { Mic, ArrowUp, Plus, X } from "lucide-react";
+import { ArrowUp, Plus, X } from "lucide-react";
 import { AssistantState } from "../types/assistant";
 
 interface InputBarProps {
@@ -166,21 +166,6 @@ export const InputBar: React.FC<InputBarProps> = ({
           title="Attach file"
         >
           <Plus className="w-4 h-4" />
-        </button>
-
-        {/* Quick Microphone Button */}
-        <button
-          onClick={onToggleMic}
-          type="button"
-          aria-label={isMicActive ? "Mute microphone" : "Enable microphone"}
-          className={`p-2.5 rounded-xl transition-all cursor-pointer ${
-            isMicActive
-              ? "bg-[#00ffaa]/15 text-[#00ffaa] border border-[#00ffaa]/30 shadow-[0_0_10px_rgba(0,255,170,0.2)]"
-              : "text-neutral-400 hover:text-white hover:bg-white/[0.06]"
-          }`}
-          title={isMicActive ? "Deactivate voice mode" : "Activate voice mode"}
-        >
-          <Mic className="w-4 h-4" />
         </button>
 
         {/* Text Input */}
