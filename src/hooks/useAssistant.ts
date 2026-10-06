@@ -128,13 +128,22 @@ export function useAssistant() {
   const currentUserIdRef = useRef<string | null>(null);
   const speechReceivedInCurrentTurnRef = useRef<boolean>(false);
 
-  // Persist conversation history changes
+  // Persist only stable conversation states. During streaming, assistant text can
+  // change many times per second; synchronous localStorage JSON serialization
+  // on every chunk causes visible Android WebView jank.
   useEffect(() => {
-    try {
-      defaultMemoryStore.saveConversationHistory(messages);
-    } catch (err) {
-      console.warn("Failed to persist conversation history:", err);
-    }
+    const isStreaming = messages.some((message) => message.isStreaming || message.status === "streaming");
+    if (isStreaming) return;
+
+    const timer = window.setTimeout(() => {
+      try {
+        defaultMemoryStore.saveConversationHistory(messages);
+      } catch (err) {
+        console.warn("Failed to persist conversation history:", err);
+      }
+    }, 350);
+
+    return () => window.clearTimeout(timer);
   }, [messages]);
 
   // Voice capture & audio playback hook
