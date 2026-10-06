@@ -157,9 +157,15 @@ export async function generateAndroidReply(
         system_instruction: { parts: [{ text: systemInstruction }] },
         contents,
         generationConfig: {
-          temperature: 0.7,
           thinkingConfig: { thinkingLevel: "minimal" },
           maxOutputTokens: 800,
+        },
+        // The Android brain has no function declarations. Explicitly prohibit
+        // function calling so the model cannot interpret legacy system-prompt
+        // action instructions as an undeclared tool call.
+        // @ts-ignore
+        toolConfig: {
+          functionCallingConfig: { mode: "NONE" },
         },
       }),
     });
