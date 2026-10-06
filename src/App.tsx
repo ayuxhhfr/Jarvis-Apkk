@@ -123,10 +123,30 @@ export default function App() {
       try {
         const cleanup = await startAndroidWakeWord("jarvis", async (command) => {
           if (cancelled) return;
-          if (command) await sendTextMessage(command);
-          else {
-            await speakAndroid("Yes Boss, I'm listening.");
+          if (command) {
+            await sendTextMessage(command);
             await resumeAndroidWakeWord("jarvis");
+          } else if (!wakeCommandListeningRef.current) {
+            wakeCommandListeningRef.current = true;
+            try {
+              await speakAndroid("Yes Boss, I'm listening.");
+              await new Promise<void>((resolve) => setTimeout(resolve, 250));
+              await listenAndroidOnce(
+                async (text) => {
+                  if (text.trim()) await sendTextMessage(text.trim());
+                  await resumeAndroidWakeWord("jarvis");
+                  wakeCommandListeningRef.current = false;
+                  resolve();
+                },
+                () => {
+                  wakeCommandListeningRef.current = false;
+                  resolve();
+                }
+              );
+            } catch {
+              wakeCommandListeningRef.current = false;
+              await resumeAndroidWakeWord("jarvis");
+            }
           }
         });
         if (cancelled) cleanup();
