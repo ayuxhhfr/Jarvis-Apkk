@@ -20,7 +20,7 @@ import { sessionService } from "./services/sessionService";
 import { useBrowser } from "./hooks/useBrowser";
 import { useAssistant } from "./hooks/useAssistant";
 import { getAndroidApiKey, isAndroidApp, speakAndroid, listenAndroidOnce } from "./services/androidRuntime";
-import { startAndroidWakeWord } from "./services/androidAppActions";
+import { startAndroidWakeWord, resumeAndroidWakeWord } from "./services/androidAppActions";
 import { AlertCircle, X, ChevronDown, ChevronUp } from "lucide-react";
 import { ChatSidebar, ChatSession } from "./components/ChatSidebar";
 
@@ -77,6 +77,7 @@ export default function App() {
       const cleanup = await startAndroidWakeWord("jarvis", async (command) => {
         if (command) {
           await sendTextMessage(command);
+          await resumeAndroidWakeWord("jarvis");
           return;
         }
 
@@ -89,6 +90,7 @@ export default function App() {
           await listenAndroidOnce(
             async (text) => {
               if (text.trim()) await sendTextMessage(text.trim());
+              await resumeAndroidWakeWord("jarvis");
               wakeCommandListeningRef.current = false;
               resolve();
             },
@@ -122,7 +124,10 @@ export default function App() {
         const cleanup = await startAndroidWakeWord("jarvis", async (command) => {
           if (cancelled) return;
           if (command) await sendTextMessage(command);
-          else await speakAndroid("Yes Boss, I'm listening.");
+          else {
+            await speakAndroid("Yes Boss, I'm listening.");
+            await resumeAndroidWakeWord("jarvis");
+          }
         });
         if (cancelled) cleanup();
         else wakeCleanupRef.current = cleanup;
