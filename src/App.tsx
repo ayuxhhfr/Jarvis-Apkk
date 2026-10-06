@@ -270,12 +270,12 @@ export default function App() {
             onToggleWakeWord={toggleWakeWord}
           />
 
-          {/* Error Banner */}
+          {/* Compact runtime dialog */}
           {activeError && (
-            <div className="relative z-40 mx-4 mt-2 px-4 py-2.5 rounded-xl bg-rose-950/80 border border-rose-500/30 text-rose-200 text-xs flex items-center justify-between shadow-lg backdrop-blur-md animate-fadeIn gap-3">
-              <div className="flex items-center gap-2 flex-wrap">
+            <div className="fixed left-1/2 top-[calc(env(safe-area-inset-top)+76px)] z-[90] w-[calc(100%-32px)] max-w-[520px] -translate-x-1/2 rounded-2xl bg-rose-950/95 border border-rose-500/30 text-rose-200 text-xs shadow-2xl backdrop-blur-xl animate-fadeIn">
+              <div className="flex items-start gap-2.5 p-3.5">
                 <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-                <span>{activeError}</span>
+                <span className="leading-5 break-words">{activeError}</span>
                 {(screenShareStatus.isIframeRestricted ||
                   activeError.toLowerCase().includes("new tab")) && (
                   <a
@@ -290,7 +290,7 @@ export default function App() {
               </div>
               <button
                 onClick={dismissError}
-                className="p-1 hover:text-white transition-colors cursor-pointer shrink-0"
+                className="absolute right-2.5 top-2.5 p-1.5 hover:text-white transition-colors cursor-pointer shrink-0"
                 aria-label="Dismiss error"
               >
                 <X className="w-3.5 h-3.5" />
