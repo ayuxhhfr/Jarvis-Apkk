@@ -31,9 +31,9 @@ export class AudioManager {
   // A modest startup jitter cushion absorbs normal mobile WebView/network
   // bursts. The stream stays primed across tiny source gaps so it does not
   // repeatedly add another startup delay in the middle of a sentence.
-  private readonly STREAM_START_BUFFER_SECONDS = 0.20;
-  private readonly STREAM_SAFETY_LEAD_SECONDS = 0.018;
-  private readonly STREAM_IDLE_RESET_MS = 240;
+  private readonly STREAM_START_BUFFER_SECONDS = 0.035;
+  private readonly STREAM_SAFETY_LEAD_SECONDS = 0.006;
+  private readonly STREAM_IDLE_RESET_MS = 80;
 
   private isAssistantSpeaking: boolean = false;
 
