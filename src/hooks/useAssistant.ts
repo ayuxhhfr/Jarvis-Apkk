@@ -306,13 +306,9 @@ export function useAssistant() {
       }
 
       if (settingsRef.current.voiceEnabled) {
-        playAudioChunk(base64Audio, () => {
-          // Playback finished if queue is empty
-          if (stateRef.current === "speaking" && !speechReceivedInCurrentTurnRef.current) {
-            setState(isMicActive ? "listening" : "idle");
-            setAssistantSpeaking(false);
-          }
-        });
+        // A transient PCM/network gap must not end the voice turn.
+        // Gemini Live turnComplete owns the speaking-state transition.
+        playAudioChunk(base64Audio);
       }
     });
 
