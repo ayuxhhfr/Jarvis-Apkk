@@ -62,10 +62,14 @@ export const AIOrb: React.FC<AIOrbProps> = ({
     // WebGL onto low-end Android WebViews.
     const isAndroid = /Android/i.test(navigator.userAgent);
     const cores = navigator.hardwareConcurrency || 4;
-    const lowPowerDevice = isAndroid && cores <= 6;
+    const deviceMemory = Number((navigator as any).deviceMemory || 4);
+    // The previous core-count heuristic treated an 8-core Android as
+    // desktop-class. Keep Android on the realtime-safe visual profile so
+    // WebGL never competes with Live audio and the keyboard.
+    const lowPowerDevice = isAndroid || cores <= 6 || deviceMemory <= 4;
     const renderPixelRatio = lowPowerDevice
       ? Math.min(window.devicePixelRatio || 1, 1.25)
-      : Math.min(window.devicePixelRatio || 1, 1.75);
+      : Math.min(window.devicePixelRatio || 1, 1.5);
 
     const renderer = new THREE.WebGLRenderer({
       antialias: !lowPowerDevice,
@@ -469,20 +473,38 @@ export const AIOrb: React.FC<AIOrbProps> = ({
     animate();
 
     // Resize Handler using ResizeObserver to handle CSS-driven layout reflows dynamically
+    let resizeFrame: number | null = null;
+    let appliedWidth = width;
+    let appliedHeight = height;
+
     const resizeObserver = new ResizeObserver((entries) => {
       if (!entries || entries.length === 0) return;
       const entry = entries[0];
-      width = entry.contentRect.width || container.clientWidth || 360;
-      height = entry.contentRect.height || container.clientHeight || 360;
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
-      renderer.setSize(width, height);
+      const nextWidth = Math.round(entry.contentRect.width || container.clientWidth || 360);
+      const nextHeight = Math.round(entry.contentRect.height || container.clientHeight || 360);
+
+      if (Math.abs(nextWidth - appliedWidth) < 2 && Math.abs(nextHeight - appliedHeight) < 2) {
+        return;
+      }
+
+      if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = null;
+        width = nextWidth;
+        height = nextHeight;
+        appliedWidth = width;
+        appliedHeight = height;
+        camera.aspect = width / Math.max(1, height);
+        camera.updateProjectionMatrix();
+        renderer.setSize(width, height);
+      });
     });
     resizeObserver.observe(container);
 
     // Cleanup
     return () => {
       cancelAnimationFrame(animId);
+      if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
       resizeObserver.disconnect();
       container.removeEventListener("mousedown", onMouseDown);
       window.removeEventListener("mousemove", onMouseMove);
