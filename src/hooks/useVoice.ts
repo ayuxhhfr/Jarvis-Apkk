@@ -64,21 +64,24 @@ export function useVoice() {
     audioManager.playEncodedAudio(base64Data, onEnd);
   }, []);
 
-  // Poll visualizer levels
+  // Keep audio visualization responsive without forcing the entire React tree
+  // to render at 60fps. The audio engine itself stays realtime; UI telemetry
+  // only needs ~15fps on low-end Android hardware.
   useEffect(() => {
+    let cancelled = false;
+
     const updateLevels = () => {
+      if (cancelled) return;
       const levels = audioManager.getLevels();
       setMicLevel(levels.micLevel);
       setOutputLevel(levels.outputLevel);
-      animFrameRef.current = requestAnimationFrame(updateLevels);
+      window.setTimeout(updateLevels, 66);
     };
 
-    animFrameRef.current = requestAnimationFrame(updateLevels);
+    updateLevels();
 
     return () => {
-      if (animFrameRef.current !== null) {
-        cancelAnimationFrame(animFrameRef.current);
-      }
+      cancelled = true;
     };
   }, []);
 
