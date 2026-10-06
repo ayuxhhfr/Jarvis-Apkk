@@ -92,7 +92,6 @@ export default function App() {
               if (text.trim()) await sendTextMessage(text.trim());
               await resumeAndroidWakeWord("jarvis");
               wakeCommandListeningRef.current = false;
-              resolve();
             },
             () => {
               wakeCommandListeningRef.current = false;
@@ -136,7 +135,6 @@ export default function App() {
                   if (text.trim()) await sendTextMessage(text.trim());
                   await resumeAndroidWakeWord("jarvis");
                   wakeCommandListeningRef.current = false;
-                  resolve();
                 },
                 () => {
                   wakeCommandListeningRef.current = false;
