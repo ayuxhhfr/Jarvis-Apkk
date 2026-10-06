@@ -19,7 +19,7 @@ import { screenShareService } from "./services/screenShareService";
 import { sessionService } from "./services/sessionService";
 import { useBrowser } from "./hooks/useBrowser";
 import { useAssistant } from "./hooks/useAssistant";
-import { getAndroidApiKey, isAndroidApp, speakAndroid, listenAndroid } from "./services/androidRuntime";
+import { getAndroidApiKey, isAndroidApp, speakAndroid, listenAndroidOnce } from "./services/androidRuntime";
 import { startAndroidWakeWord } from "./services/androidAppActions";
 import { AlertCircle, X, ChevronDown, ChevronUp } from "lucide-react";
 import { ChatSidebar, ChatSession } from "./components/ChatSidebar";
@@ -85,7 +85,7 @@ export default function App() {
         try {
           await speakAndroid("Yes Boss, I'm listening.");
           await new Promise<void>((resolve) => setTimeout(resolve, 250));
-          await listenAndroid(
+          await listenAndroidOnce(
             async (text) => {
               if (text.trim()) await sendTextMessage(text.trim());
               wakeCommandListeningRef.current = false;
