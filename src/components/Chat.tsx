@@ -66,7 +66,7 @@ export const Chat: React.FC<ChatProps> = ({ messages, className = "" }) => {
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      className={`w-full h-full overflow-y-auto px-4 py-2 space-y-1.5 scroll-smooth ${className}`}
+      className={`w-full h-full overflow-y-auto px-4 py-2 space-y-1.5 ${className}`}
     >
       {messages.map((msg) => (
         <Message key={msg.id} message={msg} />
