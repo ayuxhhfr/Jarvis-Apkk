@@ -37,7 +37,9 @@ export function useVoice() {
       setIsMicActive(true);
     } catch (err) {
       console.error("Microphone access error:", err);
-      let message = "Microphone access denied or unavailable";
+      let message = err instanceof Error
+        ? err.message
+        : "Microphone access denied or unavailable";
       if (err instanceof Error) {
         if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
           message = Capacitor.getPlatform() === "android"
