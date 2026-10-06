@@ -432,7 +432,7 @@ export class AudioManager {
       if (this.outputAnalyser && this.activeSources.length > 0) {
         const data = this.outputAnalyserData || new Uint8Array(this.outputAnalyser.frequencyBinCount);
         this.outputAnalyserData = data;
-        this.outputAnalyser.getByteFrequencyData(data);
+        this.outputAnalyser.getByteFrequencyData(data as Uint8Array<ArrayBuffer>);
         let sum = 0;
         for (let i = 0; i < data.length; i++) sum += data[i];
         const avg = sum / data.length;
