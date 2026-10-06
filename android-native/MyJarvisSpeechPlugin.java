@@ -302,39 +302,12 @@ public class MyJarvisSpeechPlugin extends Plugin {
                 pcmRecorder = record;
                 final int sessionId = record.getAudioSessionId();
 
+                // Do not stack explicit AEC/NS/AGC effects. The Android
+                // speech-oriented input source handles the vendor voice path;
+                // stacking effects here caused pumping/clipping on some phones.
                 boolean aecEnabled = false;
                 boolean nsEnabled = false;
                 boolean agcEnabled = false;
-
-                try {
-                    if (AcousticEchoCanceler.isAvailable()) {
-                        acousticEchoCanceler = AcousticEchoCanceler.create(sessionId);
-                        if (acousticEchoCanceler != null) {
-                            acousticEchoCanceler.setEnabled(true);
-                            aecEnabled = acousticEchoCanceler.getEnabled();
-                        }
-                    }
-                } catch (Throwable ignored) {}
-
-                try {
-                    if (NoiseSuppressor.isAvailable()) {
-                        noiseSuppressor = NoiseSuppressor.create(sessionId);
-                        if (noiseSuppressor != null) {
-                            noiseSuppressor.setEnabled(true);
-                            nsEnabled = noiseSuppressor.getEnabled();
-                        }
-                    }
-                } catch (Throwable ignored) {}
-
-                try {
-                    if (AutomaticGainControl.isAvailable()) {
-                        automaticGainControl = AutomaticGainControl.create(sessionId);
-                        if (automaticGainControl != null) {
-                            automaticGainControl.setEnabled(true);
-                            agcEnabled = automaticGainControl.getEnabled();
-                        }
-                    }
-                } catch (Throwable ignored) {}
 
                 pcmCaptureActive = true;
                 final boolean finalAecEnabled = aecEnabled;
