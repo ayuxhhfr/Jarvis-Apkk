@@ -24,7 +24,8 @@ import { browserManager } from "../services/browserManager";
 import { defaultMemoryStore } from "../services/memoryStore";
 import { screenShareService } from "../services/screenShareService";
 import { sessionService } from "../services/sessionService";
-import { isAndroidApp } from "../services/androidRuntime";
+import { isAndroidApp, speakAndroid } from "../services/androidRuntime";
+import { tryOpenAndroidAppCommand, startAndroidWakeWord } from "../services/androidAppActions";
 
 export function useAssistant() {
   // Gemini decides whether ordinary conversation contains durable user knowledge.
@@ -174,6 +175,49 @@ export function useAssistant() {
     systemInstruction: settings.systemInstruction,
     voiceOnly: true,
   });
+
+  // Deterministic native Android app-launch path. It runs before Gemini so commands
+  // such as "open YouTube", "launch WhatsApp", or "start Spotify" never depend on
+  // model tool-calling and feel instant.
+  const runAndroidAppCommand = useCallback(async (text: string, isVoice: boolean): Promise<boolean> => {
+    if (!isAndroidApp()) return false;
+    try {
+      const app = await tryOpenAndroidAppCommand(text);
+      if (!app) return false;
+
+      const reply = `Opening ${app.name} now, Boss.`;
+      const now = Date.now();
+      const id = (settingsRef.current.selectedProfileId || "jarvis") + "-app-" + now;
+      setMessages((prev) => [...prev, {
+        id,
+        role: "assistant",
+        sender: (settingsRef.current.selectedProfileId || "jarvis") as any,
+        content: reply,
+        text: reply,
+        timestamp: now,
+        status: "complete",
+        isStreaming: false,
+        isVoice,
+      }]);
+
+      if (isVoice && settingsRef.current.voiceEnabled && geminiLive.connected) {
+        setState("speaking");
+        setAssistantSpeaking(true);
+        geminiLive.speakText(reply);
+      } else if (isVoice && settingsRef.current.voiceEnabled) {
+        await speakAndroid(reply).catch(() => {});
+        setState("idle");
+      } else {
+        setState("idle");
+      }
+      return true;
+    } catch (error) {
+      setActiveError(error instanceof Error ? error.message : "Unable to open that Android app.");
+      setState("idle");
+      return true;
+    }
+  }, [geminiLive, setAssistantSpeaking]);
+
 
   /**
    * Universal user interruption handler.
@@ -402,6 +446,10 @@ export function useAssistant() {
         // Declared outside the try so the catch block can clean up the placeholder message.
         let assistantMsgId = "";
         try {
+          if (await runAndroidAppCommand(clean, true)) {
+            currentUserIdRef.current = null;
+            return;
+          }
           const browserIntent = parseBrowserIntent(clean, browserManager.isCurrentSiteYouTube());
           if (browserIntent) browserManager.executeTool(browserIntent.name, browserIntent.args);
 
@@ -795,13 +843,16 @@ export function useAssistant() {
         return;
       }
 
-      // 1. Check if command is a direct browser action and execute immediately
+      // 1. Check if command is a direct native Android app action and execute immediately
+      if (await runAndroidAppCommand(trimmed, false)) return;
+
+      // 2. Check if command is a direct browser action and execute immediately
       const browserIntent = parseBrowserIntent(trimmed, browserManager.isCurrentSiteYouTube());
       if (browserIntent) {
         browserManager.executeTool(browserIntent.name, browserIntent.args);
       }
 
-      // 2. Check if command is an explicit screen share command
+      // 3. Check if command is an explicit screen share command
       const screenIntent = screenShareService.parseScreenShareIntent(trimmed);
       if (screenIntent) {
         try {
@@ -815,7 +866,7 @@ export function useAssistant() {
         }
       }
 
-      // 3. Explicit memory commands are deterministic; otherwise ask Gemini
+      // 4. Explicit memory commands are deterministic; otherwise ask Gemini
       // whether this message contains durable information worth remembering.
       const memoryIntent = memoryService.parseMemoryIntent(trimmed);
       if (memoryIntent) {
@@ -841,7 +892,7 @@ export function useAssistant() {
         void learnImplicitMemory(trimmed, "inferred");
       }
 
-      // 4. Retrieve relevant memory context for the current query
+      // 5. Retrieve relevant memory context for the current query
       let memoryContext = "";
       try {
         if (memoryIntent?.type === "query") {
