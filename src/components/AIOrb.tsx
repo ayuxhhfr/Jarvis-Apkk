@@ -58,13 +58,22 @@ export const AIOrb: React.FC<AIOrbProps> = ({
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
     camera.position.z = 6.2;
 
+    // Adapt rendering quality to the device instead of forcing desktop-quality
+    // WebGL onto low-end Android WebViews.
+    const isAndroid = /Android/i.test(navigator.userAgent);
+    const cores = navigator.hardwareConcurrency || 4;
+    const lowPowerDevice = isAndroid && cores <= 6;
+    const renderPixelRatio = lowPowerDevice
+      ? Math.min(window.devicePixelRatio || 1, 1.25)
+      : Math.min(window.devicePixelRatio || 1, 1.75);
+
     const renderer = new THREE.WebGLRenderer({
-      antialias: true,
+      antialias: !lowPowerDevice,
       alpha: true,
       powerPreference: "high-performance",
     });
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(renderPixelRatio);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.1;
     container.appendChild(renderer.domElement);
@@ -75,7 +84,7 @@ export const AIOrb: React.FC<AIOrbProps> = ({
 
     // 1. Dark Core Sphere (Deep charcoal/black with subtle surface sheen)
     const sphereRadius = 2.0;
-    const coreGeo = new THREE.SphereGeometry(sphereRadius, 48, 48);
+    const coreGeo = new THREE.SphereGeometry(sphereRadius, lowPowerDevice ? 32 : 48, lowPowerDevice ? 32 : 48);
     const coreMat = new THREE.MeshStandardMaterial({
       color: 0x070b0e,
       roughness: 0.85,
@@ -103,7 +112,7 @@ export const AIOrb: React.FC<AIOrbProps> = ({
       const y = sphereRadius * Math.sin(rad) * 1.002;
       const ringGeo = new THREE.BufferGeometry();
       const points: THREE.Vector3[] = [];
-      const segments = 64;
+      const segments = lowPowerDevice ? 36 : 64;
       for (let i = 0; i <= segments; i++) {
         const theta = (i / segments) * Math.PI * 2;
         points.push(new THREE.Vector3(r * Math.cos(theta), y, r * Math.sin(theta)));
@@ -116,7 +125,7 @@ export const AIOrb: React.FC<AIOrbProps> = ({
 
     // Longitude meridians
     const lonGroup = new THREE.Group();
-    const numMeridians = 12;
+    const numMeridians = lowPowerDevice ? 8 : 12;
     for (let m = 0; m < numMeridians; m++) {
       const meridianGeo = new THREE.BufferGeometry();
       const points: THREE.Vector3[] = [];
@@ -137,7 +146,7 @@ export const AIOrb: React.FC<AIOrbProps> = ({
 
     // 3. Continental Data Points & City Lights
     // Distribute subtle points with continents-like density
-    const numPoints = 1600;
+    const numPoints = lowPowerDevice ? 700 : 1600;
     const positions = new Float32Array(numPoints * 3);
     const opacities = new Float32Array(numPoints);
 
@@ -193,7 +202,7 @@ export const AIOrb: React.FC<AIOrbProps> = ({
 
       const pathGeo = new THREE.BufferGeometry();
       const pts: THREE.Vector3[] = [];
-      const segs = 90;
+      const segs = lowPowerDevice ? 54 : 90;
       for (let i = 0; i <= segs; i++) {
         const th = (i / segs) * Math.PI * 2;
         pts.push(new THREE.Vector3(radius * Math.cos(th), 0, radius * Math.sin(th)));
@@ -210,7 +219,7 @@ export const AIOrb: React.FC<AIOrbProps> = ({
       ringGroup.add(orbitLine);
 
       // Orbiting satellite/node
-      const beaconGeo = new THREE.SphereGeometry(0.045, 12, 12);
+      const beaconGeo = new THREE.SphereGeometry(0.045, lowPowerDevice ? 8 : 12, lowPowerDevice ? 8 : 12);
       const beaconMat = new THREE.MeshBasicMaterial({
         color: 0x00ffaa,
         transparent: true,
@@ -228,7 +237,7 @@ export const AIOrb: React.FC<AIOrbProps> = ({
     globeGroup.add(orbitGroup);
 
     // 5. Scanning Plane / Ring for THINKING State
-    const scanRingGeo = new THREE.RingGeometry(1.95, 2.05, 48);
+    const scanRingGeo = new THREE.RingGeometry(1.95, 2.05, lowPowerDevice ? 32 : 48);
     const scanRingMat = new THREE.MeshBasicMaterial({
       color: 0x00ffaa,
       transparent: true,
@@ -241,7 +250,7 @@ export const AIOrb: React.FC<AIOrbProps> = ({
     globeGroup.add(scanRing);
 
     // 6. Atmospheric Glow Layer
-    const atmoGeo = new THREE.SphereGeometry(sphereRadius * 1.15, 40, 40);
+    const atmoGeo = new THREE.SphereGeometry(sphereRadius * 1.15, lowPowerDevice ? 28 : 40, lowPowerDevice ? 28 : 40);
     const atmoMat = new THREE.ShaderMaterial({
       vertexShader: `
         varying vec3 vNormal;
@@ -272,7 +281,7 @@ export const AIOrb: React.FC<AIOrbProps> = ({
     scene.add(atmoMesh);
 
     // 7. Subtle Ambient Floating Data Particles
-    const dustCount = 80;
+    const dustCount = lowPowerDevice ? 40 : 80;
     const dustPositions = new Float32Array(dustCount * 3);
     for (let i = 0; i < dustCount; i++) {
       const r = sphereRadius * (1.2 + Math.random() * 0.9);
@@ -371,6 +380,8 @@ export const AIOrb: React.FC<AIOrbProps> = ({
     let currentAtmoIntensity = 0.45;
 
     const clock = new THREE.Clock();
+    let lastRenderTime = 0;
+    const targetFrameMs = lowPowerDevice ? 33 : 16;
 
     const animate = () => {
       animId = requestAnimationFrame(animate);
@@ -448,7 +459,11 @@ export const AIOrb: React.FC<AIOrbProps> = ({
       dustMesh.rotation.y = elapsedTime * 0.02;
       dustMesh.rotation.x = Math.sin(elapsedTime * 0.05) * 0.05;
 
-      renderer.render(scene, camera);
+      const now = performance.now();
+      if (now - lastRenderTime >= targetFrameMs) {
+        lastRenderTime = now;
+        renderer.render(scene, camera);
+      }
     };
 
     animate();
