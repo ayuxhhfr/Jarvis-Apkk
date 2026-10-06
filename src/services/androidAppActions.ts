@@ -147,7 +147,7 @@ export async function tryOpenAndroidAppCommand(text: string): Promise<InstalledA
     .trim();
 
   const match = cleaned.match(
-    /^(?:open|launch|start|run|go\s+to|take\s+me\s+to|show\s+me)\s+(?:the\s+)?(.+?)(?:\s+app)?[.!?]*$/i
+    /^(?:(?:please|can\s+you)\s+)?(?:open|launch|start|run|go\s+to|take\s+me\s+to|show\s+me|khol(?:o|na)?|chala(?:o|do)|shuru\s+karo)\s+(?:the\s+)?(.+?)(?:\s+(?:app|please|plz|do|karo|please\s+do))?[.!?]*$/i
   );
   if (!match) return null;
 
