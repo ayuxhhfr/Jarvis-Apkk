@@ -4,15 +4,15 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { Capacitor } from "@capacitor/core";
 import { audioManager, AudioChunkCallback, InterruptCallback } from "../services/audioManager";
+import { requestAndroidMicrophonePermission } from "../services/nativePermissions";
 
 export function useVoice() {
   const [isMicActive, setIsMicActive] = useState<boolean>(false);
   const [micLevel, setMicLevel] = useState<number>(0);
   const [outputLevel, setOutputLevel] = useState<number>(0);
   const [permissionError, setPermissionError] = useState<string | null>(null);
-
-  const animFrameRef = useRef<number | null>(null);
 
   const startListening = useCallback(async (onAudioChunk?: AudioChunkCallback, onInterrupt?: InterruptCallback) => {
     try {
@@ -23,6 +23,16 @@ export function useVoice() {
       if (onInterrupt) {
         audioManager.setOnInterrupt(onInterrupt);
       }
+
+      if (Capacitor.getPlatform() === "android") {
+        const granted = await requestAndroidMicrophonePermission();
+        if (!granted) {
+          throw new Error(
+            "Microphone permission is denied. Allow Microphone for JARVIS in Android Settings, then try again."
+          );
+        }
+      }
+
       await audioManager.startMicrophone();
       setIsMicActive(true);
     } catch (err) {
@@ -30,7 +40,9 @@ export function useVoice() {
       let message = "Microphone access denied or unavailable";
       if (err instanceof Error) {
         if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-          message = "Microphone permission was denied. Please allow microphone access in your browser settings.";
+          message = Capacitor.getPlatform() === "android"
+            ? "Microphone permission was denied. Allow Microphone for JARVIS in Android Settings, then try again."
+            : "Microphone permission was denied. Please allow microphone access in your browser settings.";
         } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
           message = "No microphone hardware found on this device.";
         }
@@ -69,12 +81,22 @@ export function useVoice() {
   // only needs ~15fps on low-end Android hardware.
   useEffect(() => {
     let cancelled = false;
+    let lastMic = -1;
+    let lastOutput = -1;
 
     const updateLevels = () => {
       if (cancelled) return;
       const levels = audioManager.getLevels();
-      setMicLevel(levels.micLevel);
-      setOutputLevel(levels.outputLevel);
+
+      if (Math.abs(levels.micLevel - lastMic) > 0.018) {
+        lastMic = levels.micLevel;
+        setMicLevel(levels.micLevel);
+      }
+      if (Math.abs(levels.outputLevel - lastOutput) > 0.018) {
+        lastOutput = levels.outputLevel;
+        setOutputLevel(levels.outputLevel);
+      }
+
       window.setTimeout(updateLevels, 66);
     };
 
