@@ -675,7 +675,7 @@ export function useAssistant() {
           setState(isMicActive ? "listening" : "idle");
           setAssistantSpeaking(false);
         }
-      }, 500);
+      }, 80);
     });
 
     return () => {
