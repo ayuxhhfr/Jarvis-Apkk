@@ -77,8 +77,12 @@ export const InputBar: React.FC<InputBarProps> = ({
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setText(e.target.value);
     const el = e.target;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+    // Defer the textarea measurement so the Android IME animation is not
+    // forced to perform a synchronous layout read/write on the same frame.
+    requestAnimationFrame(() => {
+      el.style.height = "auto";
+      el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+    });
   };
 
   const triggerFileSelect = () => {
