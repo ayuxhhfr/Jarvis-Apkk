@@ -421,6 +421,52 @@ export async function listenAndroid(
   };
 }
 
+export async function startAndroidPcmCapture(
+  onAudioChunk: (base64Pcm: string) => void,
+  onSpeechActivity?: (speaking: boolean, rms: number) => void,
+  onError?: (message: string) => void,
+): Promise<() => void> {
+  let stopped = false;
+  let audioListener: { remove: () => Promise<void> } | null = null;
+  let speechListener: { remove: () => Promise<void> } | null = null;
+  let errorListener: { remove: () => Promise<void> } | null = null;
+
+  audioListener = await JarvisSpeech.addListener("audioChunk", (event: any) => {
+    if (stopped) return;
+    const data = String(event?.data || "");
+    if (data) onAudioChunk(data);
+  });
+
+  speechListener = await JarvisSpeech.addListener("speechActivity", (event: any) => {
+    if (stopped) return;
+    onSpeechActivity?.(event?.speech === true, Number(event?.rms || 0));
+  });
+
+  errorListener = await JarvisSpeech.addListener("audioCaptureError", (event: any) => {
+    if (stopped) return;
+    onError?.(String(event?.message || "Native microphone capture failed"));
+  });
+
+  try {
+    await JarvisSpeech.startPcmCapture({ sampleRate: 16000, chunkSamples: 640 });
+  } catch (e) {
+    stopped = true;
+    void audioListener.remove().catch(() => {});
+    void speechListener.remove().catch(() => {});
+    void errorListener.remove().catch(() => {});
+    throw e;
+  }
+
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    void JarvisSpeech.stopPcmCapture().catch(() => {});
+    void audioListener?.remove().catch(() => {});
+    void speechListener?.remove().catch(() => {});
+    void errorListener?.remove().catch(() => {});
+  };
+}
+
 export async function speakAndroid(text: string): Promise<void> {
   await JarvisSpeech.speak({ text });
 }
