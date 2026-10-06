@@ -382,6 +382,7 @@ async function startServer() {
       voiceOutputActive = false;
 
       try {
+        // @ts-ignore - @google/genai type definitions are stricter than the Live wire config used here.
         liveSession = await ai.live.connect({
           model: modelName,
           config: {
@@ -749,7 +750,8 @@ async function startServer() {
                 // @ts-ignore
                 thinkingConfig: { thinkingLevel: "low" },
               };
-              streamResponse = await ai.models.generateContentStream({
+              // @ts-ignore - managerConfig intentionally uses the provider's runtime config shape.
+            streamResponse = await ai.models.generateContentStream({
                 model: managerModel,
                 contents,
                 config: fallbackConfig,
