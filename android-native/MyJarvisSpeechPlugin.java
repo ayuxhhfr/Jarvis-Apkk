@@ -9,9 +9,6 @@ import android.util.Base64;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
-import android.media.audiofx.AcousticEchoCanceler;
-import android.media.audiofx.AutomaticGainControl;
-import android.media.audiofx.NoiseSuppressor;
 import android.os.Handler;
 import android.os.Looper;
 import android.speech.RecognitionListener;
@@ -52,9 +49,6 @@ public class MyJarvisSpeechPlugin extends Plugin {
     private AudioRecord pcmRecorder;
     private Thread pcmThread;
     private volatile boolean pcmCaptureActive;
-    private AcousticEchoCanceler acousticEchoCanceler;
-    private NoiseSuppressor noiseSuppressor;
-    private AutomaticGainControl automaticGainControl;
     private String wakeWord = "jarvis";
 
     @Override
@@ -423,22 +417,6 @@ public class MyJarvisSpeechPlugin extends Plugin {
         if (record != null) {
             try { record.stop(); } catch (Throwable ignored) {}
             try { record.release(); } catch (Throwable ignored) {}
-        }
-
-        if (acousticEchoCanceler != null) {
-            try { acousticEchoCanceler.setEnabled(false); } catch (Throwable ignored) {}
-            try { acousticEchoCanceler.release(); } catch (Throwable ignored) {}
-            acousticEchoCanceler = null;
-        }
-        if (noiseSuppressor != null) {
-            try { noiseSuppressor.setEnabled(false); } catch (Throwable ignored) {}
-            try { noiseSuppressor.release(); } catch (Throwable ignored) {}
-            noiseSuppressor = null;
-        }
-        if (automaticGainControl != null) {
-            try { automaticGainControl.setEnabled(false); } catch (Throwable ignored) {}
-            try { automaticGainControl.release(); } catch (Throwable ignored) {}
-            automaticGainControl = null;
         }
 
         Thread thread = pcmThread;
