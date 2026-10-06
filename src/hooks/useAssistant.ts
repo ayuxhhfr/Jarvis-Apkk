@@ -167,6 +167,7 @@ export function useAssistant() {
     connect: connectLive,
     sendAudio,
     sendInterrupt,
+    sendAudioStreamEnd,
     geminiLive,
   } = useGeminiLive({
     model: settings.liveModel,
@@ -722,7 +723,16 @@ export function useAssistant() {
 
         await startListening(
           (base64Pcm) => sendAudio(base64Pcm),
-          () => handleInterrupt()
+          () => handleInterrupt(),
+          () => {
+            // Client VAD has detected the end of speech. Flush Gemini's
+            // realtime input immediately instead of waiting for another
+            // server-side silence window, while keeping the mic open.
+            if (stateRef.current === "listening" || stateRef.current === "speaking") {
+              setState("thinking");
+            }
+            sendAudioStreamEnd();
+          }
         );
       } catch (err) {
         setAndroidMicActive(false);
