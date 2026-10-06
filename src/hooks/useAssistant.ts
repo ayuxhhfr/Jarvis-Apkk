@@ -248,6 +248,16 @@ export function useAssistant() {
     setState(isMicActive ? "listening" : "idle");
   }, [stopPlayback, setAssistantSpeaking, sendInterrupt, isMicActive]);
 
+  // Native Android VAD detects a genuine user voice onset while JARVIS is
+  // speaking. Stop local playback immediately, but DO NOT send audioStreamEnd:
+  // Gemini's START_OF_ACTIVITY_INTERRUPTS server VAD must keep receiving the
+  // user's new utterance so the complete barge-in command is preserved.
+  const handleAndroidBargeIn = useCallback(() => {
+    stopPlayback();
+    setAssistantSpeaking(false);
+    setState("listening");
+  }, [stopPlayback, setAssistantSpeaking]);
+
   // Connect to Gemini Live on mount with temporal context
   useEffect(() => {
     if (isAndroidApp()) return;
@@ -723,7 +733,7 @@ export function useAssistant() {
 
         await startListening(
           (base64Pcm) => sendAudio(base64Pcm),
-          () => handleInterrupt(),
+          () => handleAndroidBargeIn(),
           () => {
             // Client VAD has detected the end of speech. Flush Gemini's
             // realtime input immediately instead of waiting for another
@@ -782,7 +792,7 @@ export function useAssistant() {
         setActiveError(err instanceof Error ? err.message : "Failed to activate microphone");
       }
     }
-  }, [androidMicActive, isMicActive, stopListening, stopPlayback, setAssistantSpeaking, geminiLive, connectLive, startListening, sendAudio, handleInterrupt]);
+  }, [androidMicActive, isMicActive, stopListening, stopPlayback, setAssistantSpeaking, geminiLive, connectLive, startListening, sendAudio, sendAudioStreamEnd, handleInterrupt, handleAndroidBargeIn]);
 
   /**
    * Send text message.
