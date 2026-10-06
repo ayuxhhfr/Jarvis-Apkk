@@ -3,9 +3,22 @@ import { registerPlugin, Capacitor } from "@capacitor/core";
 interface JarvisSpeechPlugin {
   startListening(options?: { language?: string }): Promise<void>;
   stopListening(): Promise<void>;
+  startPcmCapture(options?: { sampleRate?: number; chunkSamples?: number }): Promise<void>;
+  stopPcmCapture(): Promise<void>;
   speak(options: { text: string }): Promise<void>;
   stopSpeaking(): Promise<void>;
-  addListener(eventName: "result" | "partialResult" | "error" | "state", listener: (event: any) => void): Promise<{ remove: () => Promise<void> }>;
+  addListener(
+    eventName:
+      | "result"
+      | "partialResult"
+      | "error"
+      | "state"
+      | "audioChunk"
+      | "speechActivity"
+      | "audioReady"
+      | "audioCaptureError",
+    listener: (event: any) => void
+  ): Promise<{ remove: () => Promise<void> }>;
 }
 
 const JarvisSpeech = registerPlugin<JarvisSpeechPlugin>("MyJarvisSpeech");
