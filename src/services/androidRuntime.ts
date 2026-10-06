@@ -415,3 +415,32 @@ export async function speakAndroid(text: string): Promise<void> {
 export async function stopAndroidSpeech(): Promise<void> {
   await JarvisSpeech.stopSpeaking().catch(() => {});
 }
+
+export async function listenAndroidOnce(
+  onResult: (text: string) => void,
+  onError: (message: string) => void
+): Promise<void> {
+  let cleanup: (() => void) | null = null;
+  let settled = false;
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    cleanup?.();
+    cleanup = null;
+  };
+
+  cleanup = await listenAndroid(
+    (text) => {
+      if (settled) return;
+      finish();
+      onResult(text);
+    },
+    (message) => {
+      if (settled) return;
+      finish();
+      onError(message);
+    },
+  );
+
+  if (settled) cleanup();
+}
