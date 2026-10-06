@@ -15,6 +15,7 @@ interface HeaderProps {
   onStopScreenShare?: () => void;
   onOpenInNewTab?: () => void;
   onOpenSettings: () => void;
+  onOpenMemory?: () => void;
   onOpenBrowser?: () => void;
   onOpenChats?: () => void;
 }
@@ -67,7 +68,7 @@ export const Header: React.FC<HeaderProps> = ({
         {onOpenChats && <button onClick={onOpenChats} className="p-2 rounded-lg text-neutral-400 hover:text-[#00ffaa] hover:bg-white/[0.06] active:scale-95 transition-all border border-transparent hover:border-white/[0.08] cursor-pointer" title="Conversations" aria-label="Conversations"><MessageSquare className="w-4 h-4" /></button>}
 
         {/* Memory is a real control, not a decorative glow. */}
-        <button onClick={onOpenSettings} className="p-2 rounded-lg text-neutral-400 hover:text-[#00ffaa] hover:bg-white/[0.06] active:scale-95 transition-all border border-transparent hover:border-white/[0.08] cursor-pointer" title="Memory & Settings" aria-label="Memory & Settings"><Brain className="w-4 h-4" /></button>
+        {onOpenMemory && <button onClick={onOpenMemory} className="p-2 rounded-lg text-neutral-400 hover:text-[#00ffaa] hover:bg-white/[0.06] active:scale-95 transition-all border border-transparent hover:border-white/[0.08] cursor-pointer" title="Memory Core" aria-label="Memory Core"><Brain className="w-4 h-4" /></button>}
         {onOpenBrowser && <button onClick={onOpenBrowser} className="p-2 rounded-lg text-neutral-400 hover:text-[#00ffaa] hover:bg-white/[0.06] active:scale-95 transition-all border border-transparent hover:border-white/[0.08] cursor-pointer" title="Open JARVIS Browser" aria-label="Built-in Browser"><Globe className="w-4 h-4" /></button>}
         <button onClick={onOpenSettings} className="p-2 rounded-lg text-neutral-400 hover:text-white hover:bg-white/[0.06] active:scale-95 transition-all border border-transparent hover:border-white/[0.08] cursor-pointer" title="Settings & Diagnostics" aria-label="Settings"><SlidersHorizontal className="w-4 h-4" /></button>
       </div>
