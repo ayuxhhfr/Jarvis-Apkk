@@ -48,6 +48,10 @@ export function useGeminiLive(initialConfig?: LiveSessionConfig) {
     geminiLive.sendInterrupt();
   }, []);
 
+  const sendAudioStreamEnd = useCallback(() => {
+    geminiLive.sendAudioStreamEnd();
+  }, []);
+
   useEffect(() => {
     const unsubConnect = geminiLive.onConnect(() => {
       setStatus("online");
@@ -79,6 +83,7 @@ export function useGeminiLive(initialConfig?: LiveSessionConfig) {
     sendAudio,
     sendText,
     sendInterrupt,
+    sendAudioStreamEnd,
     geminiLive,
   };
 }
