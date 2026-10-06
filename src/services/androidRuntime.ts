@@ -130,8 +130,44 @@ export async function generateAndroidReply(
     { role: "user", parts: [{ text: message }] },
   ];
 
+  // Android executes local application actions before the brain request.
+  // The REST brain has NO function declarations. The default persona historically
+  // mentioned tool calls, which can make Gemini attempt an undeclared call and
+  // return MALFORMED_FUNCTION_CALL. Keep the persona but add a hard final policy.
+  const androidManagerInstruction = [
+    systemInstruction,
+    "",
+    "==================================================",
+    "ANDROID MANAGER TOOL POLICY:",
+    "==================================================",
+    "This is the Android JARVIS text brain. It has NO function declarations and MUST return plain natural-language text only.",
+    "NEVER emit, request, simulate, or attempt a function/tool call, including save_memory, delete_memory, clear_memories, start_screen_share, stop_screen_share, open_website, search_google, search_youtube, navigate_browser, go_back, go_forward, reload_page, or close_browser.",
+    "Application actions are handled by the client orchestration layer before this request. If the user asked for an action, simply respond naturally; do not output a tool call.",
+    "Do not output JSON, XML, YAML, function-call syntax, or structured tool arguments unless the user explicitly asks for that format.",
+    "Return only the conversational answer shown to the user.",
+  ].join("\n");
+
   const startedAt = performance.now();
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(selectedModel)}:generateContent`;
+
+  const request = async (instruction: string): Promise<Response> => {
+    return fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": key,
+      },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: instruction }] },
+        contents,
+        generationConfig: {
+          thinkingConfig: { thinkingLevel: "minimal" },
+          maxOutputTokens: 800,
+        },
+        // Deliberately no tools/functionDeclarations on Android.
+      }),
+    });
+  };
 
   try {
     console.log("[Gemini Android] Brain request started", {
@@ -140,38 +176,13 @@ export async function generateAndroidReply(
       method: "POST",
       historyMessages: contents.length - 1,
       promptChars: message.length,
-      systemChars: systemInstruction.length,
+      systemChars: androidManagerInstruction.length,
     });
 
-    // Deliberately use the proven Android REST generateContent path.
-    // There is no short client-side AbortController here: previous latency work
-    // introduced an 8–15s abort which hid a slow-but-valid Gemini response as
-    // "Gemini request timed out." The platform/network is now allowed to finish.
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": key,
-      },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: systemInstruction }] },
-        contents,
-        generationConfig: {
-          thinkingConfig: { thinkingLevel: "minimal" },
-          maxOutputTokens: 800,
-        },
-        // The Android brain has no function declarations. Explicitly prohibit
-        // function calling so the model cannot interpret legacy system-prompt
-        // action instructions as an undeclared tool call.
-        // @ts-ignore
-        toolConfig: {
-          functionCallingConfig: { mode: "NONE" },
-        },
-      }),
-    });
-
-    const elapsedMs = Math.max(0, Math.round(performance.now() - startedAt));
-    const raw = await res.text();
+    // No short client-side timeout: let a valid but slow response finish.
+    let res = await request(androidManagerInstruction);
+    let elapsedMs = Math.max(0, Math.round(performance.now() - startedAt));
+    let raw = await res.text();
     let data: any = {};
     try {
       data = raw ? JSON.parse(raw) : {};
@@ -209,13 +220,57 @@ export async function generateAndroidReply(
       throw error;
     }
 
-    const text = data?.candidates?.[0]?.content?.parts
+    let text = data?.candidates?.[0]?.content?.parts
       ?.map((part: any) => part?.text || "")
       .join("")
       .trim() || "";
 
+    const finishReason =
+      data?.candidates?.[0]?.finishReason ||
+      data?.promptFeedback?.blockReason ||
+      "unknown";
+
+    // Recovery path for older/custom prompts that still cause an undeclared
+    // function-call attempt. Retry once with a minimal plain-text system prompt.
+    if (!text && finishReason === "MALFORMED_FUNCTION_CALL") {
+      console.warn("[Gemini Android] MALFORMED_FUNCTION_CALL; retrying plain-text brain request.");
+      const retryStartedAt = performance.now();
+      const retryInstruction =
+        "You are JARVIS, the user's personal AI assistant. " +
+        "Return plain natural-language text only. This Android request has NO tools " +
+        "or function declarations. Never emit a function call, tool call, JSON tool " +
+        "arguments, XML, or structured tool syntax. The application already handled " +
+        "any local action requested by the user. Answer the user's message normally.";
+
+      res = await request(retryInstruction);
+      const retryElapsedMs = Math.max(0, Math.round(performance.now() - retryStartedAt));
+      const retryRaw = await res.text();
+      let retryData: any = {};
+      try {
+        retryData = retryRaw ? JSON.parse(retryRaw) : {};
+      } catch {
+        retryData = {};
+      }
+
+      if (res.ok) {
+        text = retryData?.candidates?.[0]?.content?.parts
+          ?.map((part: any) => part?.text || "")
+          .join("")
+          .trim() || "";
+
+        if (text) {
+          console.log("[Gemini Android] Malformed-call recovery succeeded", {
+            model: selectedModel,
+            responseMs: retryElapsedMs,
+            outputChars: text.length,
+          });
+          onChunk?.(text);
+          return text;
+        }
+      }
+    }
+
     if (!text) {
-      const finishReason = data?.candidates?.[0]?.finishReason || data?.promptFeedback?.blockReason || "unknown";
       const error: any = new Error(
         `Gemini ${selectedModel} returned no text after ${elapsedMs}ms (finishReason: ${finishReason}).`
       );
@@ -239,13 +294,9 @@ export async function generateAndroidReply(
       outputChars: text.length,
     });
 
-    // Preserve the existing streaming UI contract. Android uses one reliable REST
-    // result rather than WebView SSE chunking, so the UI receives one authoritative chunk.
     onChunk?.(text);
     return text;
   } catch (err: any) {
-    // Fetch/network failures must remain visible as network/TLS/WebView errors.
-    // Do not rewrite arbitrary failures as a Gemini timeout.
     if (err instanceof TypeError) {
       const elapsedMs = Math.max(0, Math.round(performance.now() - startedAt));
       const networkError: any = new Error(
