@@ -22,6 +22,7 @@ export const Chat: React.FC<ChatProps> = ({ messages, className = "" }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef<boolean>(true);
   const prevMessagesLengthRef = useRef<number>(messages.length);
+  const scrollFrameRef = useRef<number | null>(null);
 
   // Monitor user scroll position to avoid forceful auto-scroll when user is reading past messages
   const handleScroll = useCallback(() => {
@@ -36,11 +37,30 @@ export const Chat: React.FC<ChatProps> = ({ messages, className = "" }) => {
     const isNewMessageAdded = messages.length > prevMessagesLengthRef.current;
     prevMessagesLengthRef.current = messages.length;
 
-    // Scroll if user added a new message or is already near the bottom
+    // Streaming can update the last message many times per second. Coalesce
+    // those scroll operations into one frame and avoid animated scrolling
+    // while text/audio is actively arriving.
     if (isNewMessageAdded || isNearBottomRef.current) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      if (scrollFrameRef.current !== null) {
+        cancelAnimationFrame(scrollFrameRef.current);
+      }
+      const isStreaming = messages.some((message) => message.isStreaming || message.status === "streaming");
+      scrollFrameRef.current = requestAnimationFrame(() => {
+        scrollFrameRef.current = null;
+        const el = containerRef.current;
+        if (!el) return;
+        if (isStreaming) {
+          el.scrollTop = el.scrollHeight;
+        } else {
+          bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+        }
+      });
     }
   }, [messages]);
+
+  useEffect(() => () => {
+    if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+  }, []);
 
   return (
     <div
