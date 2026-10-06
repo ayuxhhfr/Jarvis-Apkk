@@ -12,6 +12,7 @@ import { StatusIndicator } from "./components/StatusIndicator";
 import { Chat } from "./components/Chat";
 import { InputBar } from "./components/InputBar";
 import { Settings } from "./components/Settings";
+import { MemoryDashboard } from "./components/MemoryDashboard";
 import { AndroidSetup } from "./components/AndroidSetup";
 import { BrowserView } from "./components/Browser/BrowserView";
 import { browserManager } from "./services/browserManager";
@@ -51,6 +52,7 @@ export default function App() {
   const { browserOpen } = useBrowser();
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isMemoryOpen, setIsMemoryOpen] = useState(false);
   const [showAndroidSetup, setShowAndroidSetup] = useState(() => isAndroidApp() && !getAndroidApiKey());
   const [wakeWordActive, setWakeWordActive] = useState(() => isAndroidApp() && localStorage.getItem("jarvis_wake_word_enabled") === "true");
   const wakeCleanupRef = useRef<(() => void) | null>(null);
@@ -264,6 +266,7 @@ export default function App() {
             onStopScreenShare={stopScreenShare}
             onOpenInNewTab={() => screenShareService.openInNewTab()}
             onOpenSettings={() => setIsSettingsOpen(true)}
+            onOpenMemory={() => setIsMemoryOpen(true)}
             onOpenBrowser={() => browserManager.open()}
             onOpenChats={() => setIsChatsOpen(true)}
           />
@@ -437,6 +440,8 @@ export default function App() {
           </footer>
         </div>
       )}
+
+      {isMemoryOpen && <MemoryDashboard isOpen={isMemoryOpen} onClose={() => setIsMemoryOpen(false)} />}
 
       {isChatsOpen && (
         <ChatSidebar
