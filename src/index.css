@@ -30,6 +30,14 @@
   .jarvis-safe-bottom {
     padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px));
   }
+
+  /* Give the fullscreen Android shell a comfortable breathing zone above the
+     header. This is intentionally additive; the existing JARVIS layout stays intact. */
+  @media (max-width: 768px) {
+    .jarvis-safe-top {
+      padding-top: max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px), 14px);
+    }
+  }
 }
 
 /* Custom subtle scrollbars */
