@@ -35,7 +35,13 @@
      header. This is intentionally additive; the existing JARVIS layout stays intact. */
   @media (max-width: 768px) {
     .jarvis-safe-top {
-      padding-top: max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px), 14px);
+      /* Edge-to-edge Android: keep the entire header below transient system UI.
+         Clamp it so the spacing scales naturally across phone heights/densities. */
+      padding-top: max(
+        env(safe-area-inset-top, 0px),
+        var(--safe-area-inset-top, 0px),
+        clamp(24px, 3.5vh, 38px)
+      );
     }
   }
 }
