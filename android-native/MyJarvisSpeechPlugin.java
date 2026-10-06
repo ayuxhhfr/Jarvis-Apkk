@@ -132,7 +132,7 @@ public class MyJarvisSpeechPlugin extends Plugin {
                 PackageManager pm = getContext().getPackageManager();
                 Intent launcher = new Intent(Intent.ACTION_MAIN, null);
                 launcher.addCategory(Intent.CATEGORY_LAUNCHER);
-                ArrayList<ResolveInfo> infos = pm.queryIntentActivities(launcher, PackageManager.MATCH_ALL);
+                java.util.List<ResolveInfo> infos = pm.queryIntentActivities(launcher, PackageManager.MATCH_ALL);
                 org.json.JSONArray apps = new org.json.JSONArray();
                 java.util.HashSet<String> seen = new java.util.HashSet<>();
                 for (ResolveInfo info : infos) {
