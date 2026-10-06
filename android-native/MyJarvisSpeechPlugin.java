@@ -274,7 +274,7 @@ public class MyJarvisSpeechPlugin extends Plugin {
                     // Fall back to VOICE_RECOGNITION, which still enables the
                     // platform's speech-oriented processing path where available.
                     builder = new AudioRecord.Builder()
-                            .setAudioSource(MediaRecorder.AudioSource.UNPROCESSED)
+                            .setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
                             .setAudioFormat(new AudioFormat.Builder()
                                     .setSampleRate(sampleRate)
                                     .setChannelMask(channelMask)
