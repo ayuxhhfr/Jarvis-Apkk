@@ -50,7 +50,8 @@ export default function App() {
 
   const { browserOpen } = useBrowser();
 
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);\n  const [showAndroidSetup, setShowAndroidSetup] = useState(() => isAndroidApp() && !getAndroidApiKey());
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [showAndroidSetup, setShowAndroidSetup] = useState(() => isAndroidApp() && !getAndroidApiKey());
   const [wakeWordActive, setWakeWordActive] = useState(() => isAndroidApp() && localStorage.getItem("jarvis_wake_word_enabled") === "true");
   const wakeCleanupRef = useRef<(() => void) | null>(null);
   const wakeCommandListeningRef = useRef(false);
@@ -150,16 +151,19 @@ export default function App() {
         ? returnEvent.suggestedGreeting.ira
         : returnEvent.suggestedGreeting.jarvis;
 
-      console.log("[JARVIS Return]\nAutomatic return greeting triggered.");
+      console.log("[JARVIS Return]
+Automatic return greeting triggered.");
 
       // 3. Trigger the greeting immediately via the assistant's existing output path
       deliverGreeting(greetingText);
 
       // 4. Mark the event as consumed to prevent repeats
       sessionService.consumeReturnEvent();
-      console.log("[JARVIS Return]\nReturn greeting consumed.");
+      console.log("[JARVIS Return]
+Return greeting consumed.");
     } else {
-      console.log("[JARVIS Return]\nNo return greeting required.");
+      console.log("[JARVIS Return]
+No return greeting required.");
     }
   }, [deliverGreeting, settings.voice, settings.selectedProfileId]);
 
@@ -221,7 +225,8 @@ export default function App() {
   }, []);
 
   return (
-    <div className="relative w-full h-[100dvh] flex flex-col justify-between overflow-hidden bg-[#08090a] text-[#e6e8eb] select-none">\n      {showAndroidSetup && <AndroidSetup onComplete={() => setShowAndroidSetup(false)} />}
+    <div className="relative w-full h-[100dvh] flex flex-col justify-between overflow-hidden bg-[#08090a] text-[#e6e8eb] select-none">
+      {showAndroidSetup && <AndroidSetup onComplete={() => setShowAndroidSetup(false)} />}
       {/* Background ambient lighting */}
       <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_50%_40%,rgba(0,255,170,0.03)_0%,transparent_65%)]" />
 
