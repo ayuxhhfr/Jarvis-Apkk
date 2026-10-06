@@ -734,6 +734,7 @@ async function startServer() {
       let managerModel = requestedBrainModel;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
+          // @ts-ignore - managerConfig intentionally uses the provider's runtime config shape.
           streamResponse = await ai.models.generateContentStream({
             model: requestedBrainModel,
             contents,
