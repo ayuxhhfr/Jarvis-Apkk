@@ -4,6 +4,8 @@ import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.os.Bundle;
 import android.util.Base64;
 import android.media.AudioFormat;
@@ -493,6 +495,26 @@ public class MyJarvisSpeechPlugin extends Plugin {
     public void stopListening(PluginCall call) {
         wakeWordActive = false;
         main.post(() -> { stopRecognizer(); stopPcmCaptureInternal(); call.resolve(); });
+    }
+
+    @PluginMethod
+    public void getClipboard(PluginCall call) {
+        try {
+            ClipboardManager clipboard = (ClipboardManager) getContext().getSystemService(Context.CLIPBOARD_SERVICE);
+            String text = "";
+            if (clipboard != null && clipboard.hasPrimaryClip()) {
+                ClipData clip = clipboard.getPrimaryClip();
+                if (clip != null && clip.getItemCount() > 0) {
+                    CharSequence value = clip.getItemAt(0).coerceToText(getContext());
+                    text = value == null ? "" : value.toString();
+                }
+            }
+            JSObject result = new JSObject();
+            result.put("text", text);
+            call.resolve(result);
+        } catch (Throwable e) {
+            call.reject("Unable to read clipboard");
+        }
     }
 
     @PluginMethod
