@@ -12,12 +12,14 @@ import { StatusIndicator } from "./components/StatusIndicator";
 import { Chat } from "./components/Chat";
 import { InputBar } from "./components/InputBar";
 import { Settings } from "./components/Settings";
+import { AndroidSetup } from "./components/AndroidSetup";
 import { BrowserView } from "./components/Browser/BrowserView";
 import { browserManager } from "./services/browserManager";
 import { screenShareService } from "./services/screenShareService";
 import { sessionService } from "./services/sessionService";
 import { useBrowser } from "./hooks/useBrowser";
 import { useAssistant } from "./hooks/useAssistant";
+import { getAndroidApiKey, isAndroidApp } from "./services/androidRuntime";
 import { AlertCircle, X, ChevronDown, ChevronUp } from "lucide-react";
 import { ChatSidebar, ChatSession } from "./components/ChatSidebar";
 
@@ -47,7 +49,7 @@ export default function App() {
 
   const { browserOpen } = useBrowser();
 
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);\n  const [showAndroidSetup, setShowAndroidSetup] = useState(() => isAndroidApp() && !getAndroidApiKey());
   const [isChatsOpen, setIsChatsOpen] = useState(false);
   const [activeChatId, setActiveChatId] = useState(() => sessionService.getMetadata().currentSessionId);
   const [isChatExpanded, setIsChatExpanded] = useState(false);
@@ -139,7 +141,7 @@ export default function App() {
   }, []);
 
   return (
-    <div className="relative w-full h-[100dvh] flex flex-col justify-between overflow-hidden bg-[#08090a] text-[#e6e8eb] select-none">
+    <div className="relative w-full h-[100dvh] flex flex-col justify-between overflow-hidden bg-[#08090a] text-[#e6e8eb] select-none">\n      {showAndroidSetup && <AndroidSetup onComplete={() => setShowAndroidSetup(false)} />}
       {/* Background ambient lighting */}
       <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_50%_40%,rgba(0,255,170,0.03)_0%,transparent_65%)]" />
 
