@@ -4,7 +4,7 @@
  * Gemini Live API real-time voice, streaming transcripts, and built-in browser overlay.
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Header } from "./components/Header";
 import { AIOrb } from "./components/AIOrb";
 import { VoiceButton } from "./components/VoiceButton";
@@ -19,7 +19,8 @@ import { screenShareService } from "./services/screenShareService";
 import { sessionService } from "./services/sessionService";
 import { useBrowser } from "./hooks/useBrowser";
 import { useAssistant } from "./hooks/useAssistant";
-import { getAndroidApiKey, isAndroidApp } from "./services/androidRuntime";
+import { getAndroidApiKey, isAndroidApp, speakAndroid, listenAndroid } from "./services/androidRuntime";
+import { startAndroidWakeWord } from "./services/androidAppActions";
 import { AlertCircle, X, ChevronDown, ChevronUp } from "lucide-react";
 import { ChatSidebar, ChatSession } from "./components/ChatSidebar";
 
@@ -50,9 +51,88 @@ export default function App() {
   const { browserOpen } = useBrowser();
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);\n  const [showAndroidSetup, setShowAndroidSetup] = useState(() => isAndroidApp() && !getAndroidApiKey());
+  const [wakeWordActive, setWakeWordActive] = useState(() => isAndroidApp() && localStorage.getItem("jarvis_wake_word_enabled") === "true");
+  const wakeCleanupRef = useRef<(() => void) | null>(null);
+  const wakeCommandListeningRef = useRef(false);
   const [isChatsOpen, setIsChatsOpen] = useState(false);
   const [activeChatId, setActiveChatId] = useState(() => sessionService.getMetadata().currentSessionId);
   const [isChatExpanded, setIsChatExpanded] = useState(false);
+
+  const toggleWakeWord = async () => {
+    if (!isAndroidApp()) {
+      console.warn("[JARVIS Wake Word] Wake word is available only in the Android app.");
+      return;
+    }
+
+    if (wakeWordActive) {
+      wakeCleanupRef.current?.();
+      wakeCleanupRef.current = null;
+      setWakeWordActive(false);
+      localStorage.setItem("jarvis_wake_word_enabled", "false");
+      return;
+    }
+
+    try {
+      const cleanup = await startAndroidWakeWord("jarvis", async (command) => {
+        if (command) {
+          await sendTextMessage(command);
+          return;
+        }
+
+        // Two-stage wake flow: "Jarvis" -> acknowledgement -> one-shot command capture.
+        if (wakeCommandListeningRef.current) return;
+        wakeCommandListeningRef.current = true;
+        try {
+          await speakAndroid("Yes Boss, I'm listening.");
+          await new Promise<void>((resolve) => setTimeout(resolve, 250));
+          await listenAndroid(
+            async (text) => {
+              if (text.trim()) await sendTextMessage(text.trim());
+              wakeCommandListeningRef.current = false;
+              resolve();
+            },
+            () => {
+              wakeCommandListeningRef.current = false;
+              resolve();
+            }
+          );
+        } catch {
+          wakeCommandListeningRef.current = false;
+        }
+      }, (message) => {
+        console.warn("[JARVIS Wake Word]", message);
+      });
+
+      wakeCleanupRef.current = cleanup;
+      setWakeWordActive(true);
+      localStorage.setItem("jarvis_wake_word_enabled", "true");
+    } catch (error) {
+      console.warn("[JARVIS Wake Word] failed to start", error);
+      setWakeWordActive(false);
+      localStorage.setItem("jarvis_wake_word_enabled", "false");
+    }
+  };
+
+  useEffect(() => {
+    if (!wakeWordActive || !isAndroidApp() || !getAndroidApiKey()) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const cleanup = await startAndroidWakeWord("jarvis", async (command) => {
+          if (cancelled) return;
+          if (command) await sendTextMessage(command);
+          else await speakAndroid("Yes Boss, I'm listening.");
+        });
+        if (cancelled) cleanup();
+        else wakeCleanupRef.current = cleanup;
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+      wakeCleanupRef.current?.();
+      wakeCleanupRef.current = null;
+    };
+  }, []);
 
   // Live time and date for technical left information HUD
   const [currentTime, setCurrentTime] = useState("");
@@ -163,6 +243,8 @@ export default function App() {
             onOpenSettings={() => setIsSettingsOpen(true)}
             onOpenBrowser={() => browserManager.open()}
             onOpenChats={() => setIsChatsOpen(true)}
+            wakeWordActive={wakeWordActive}
+            onToggleWakeWord={toggleWakeWord}
           />
 
           {/* Error Banner */}
