@@ -95,7 +95,6 @@ export default function App() {
             },
             () => {
               wakeCommandListeningRef.current = false;
-              resolve();
             }
           );
         } catch {
@@ -138,7 +137,6 @@ export default function App() {
                 },
                 () => {
                   wakeCommandListeningRef.current = false;
-                  resolve();
                 }
               );
             } catch {
