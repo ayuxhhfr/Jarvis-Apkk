@@ -160,7 +160,7 @@ export class GeminiLiveService {
             const state = this.ws?.readyState;
             console.error("[GeminiLive Android] setupComplete not received within 5s", {
               readyState: state,
-              model: androidModel,
+              model: this.lastConfig?.model || LIVE_MODEL,
             });
             this.emitError(
               "Gemini Live handshake timed out after 5s. WebSocket opened, but Google did not return setupComplete."
