@@ -15,7 +15,7 @@ interface MessageProps {
   message: ChatMessage;
 }
 
-export const Message: React.FC<MessageProps> = ({ message }) => {
+const MessageComponent: React.FC<MessageProps> = ({ message }) => {
   const isUser = message.role === "user" || message.sender === "user";
   const content = message.content || message.text || "";
   const isStreaming = message.status === "streaming" || message.isStreaming;
@@ -70,7 +70,9 @@ export const Message: React.FC<MessageProps> = ({ message }) => {
         {message.image?.data && (
           <div className="mb-2 max-w-full overflow-hidden rounded-xl border border-white/[0.08] bg-black/40">
             <img
-              src={message.image.data.startsWith("data:") ? message.image.data : `data:${message.image.mimeType || "image/jpeg"};base64,${message.image.data}`}
+              src={message.image.data.startsWith("data:") ? message.image.data : `data:${message.image.mimeType || "image/jpeg"};
+
+export const Message = React.memo(MessageComponent);base64,${message.image.data}`}
               alt="Uploaded visual context"
               className="max-h-48 sm:max-h-64 object-contain w-auto rounded-lg mx-auto"
             />
