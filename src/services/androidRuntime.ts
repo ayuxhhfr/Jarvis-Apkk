@@ -376,25 +376,25 @@ export async function listenAndroid(
       if (text) onResult(text);
     }
   });
-  errorListener = await JarvisSpeech.addListener("error", (event: any) => {
+  errorListener = await nativeBridge.addListener("error", (event: any) => {
     if (!stopped) {
       const message = String(event?.message || "Speech recognition failed");
       if (message !== "No speech detected" && message !== "No speech recognized") onError(message);
     }
   });
-  stateListener = await JarvisSpeech.addListener("state", (event: any) => {
+  stateListener = await nativeBridge.addListener("state", (event: any) => {
     if (!stopped) onState?.(String(event?.state || ""));
   });
 
   try {
-    await JarvisSpeech.startListening({ language: navigator.language || "en-IN" });
+    await nativeBridge.startListening({ language: navigator.language || "en-IN" });
   } catch (e) {
     onError(e instanceof Error ? e.message : String(e));
   }
 
   return () => {
     stopped = true;
-    void JarvisSpeech.stopListening().catch(() => {});
+    void nativeBridge.stopListening().catch(() => {});
     void resultListener?.remove().catch(() => {});
     void errorListener?.remove().catch(() => {});
     void stateListener?.remove().catch(() => {});
@@ -411,24 +411,24 @@ export async function startAndroidPcmCapture(
   let speechListener: { remove: () => Promise<void> } | null = null;
   let errorListener: { remove: () => Promise<void> } | null = null;
 
-  audioListener = await JarvisSpeech.addListener("audioChunk", (event: any) => {
+  audioListener = await nativeBridge.addListener("audioChunk", (event: any) => {
     if (stopped) return;
     const data = String(event?.data || "");
     if (data) onAudioChunk(data);
   });
 
-  speechListener = await JarvisSpeech.addListener("speechActivity", (event: any) => {
+  speechListener = await nativeBridge.addListener("speechActivity", (event: any) => {
     if (stopped) return;
     onSpeechActivity?.(event?.speech === true, Number(event?.rms || 0));
   });
 
-  errorListener = await JarvisSpeech.addListener("audioCaptureError", (event: any) => {
+  errorListener = await nativeBridge.addListener("audioCaptureError", (event: any) => {
     if (stopped) return;
     onError?.(String(event?.message || "Native microphone capture failed"));
   });
 
   try {
-    await JarvisSpeech.startPcmCapture({ sampleRate: 16000, chunkSamples: 640 });
+    await nativeBridge.startPcmCapture({ sampleRate: 16000, chunkSamples: 640 });
   } catch (e) {
     stopped = true;
     void audioListener.remove().catch(() => {});
@@ -440,7 +440,7 @@ export async function startAndroidPcmCapture(
   return () => {
     if (stopped) return;
     stopped = true;
-    void JarvisSpeech.stopPcmCapture().catch(() => {});
+    void nativeBridge.stopPcmCapture().catch(() => {});
     void audioListener?.remove().catch(() => {});
     void speechListener?.remove().catch(() => {});
     void errorListener?.remove().catch(() => {});
@@ -450,7 +450,7 @@ export async function startAndroidPcmCapture(
 export async function readAndroidClipboard(): Promise<string> {
   if (!isAndroidApp()) return "";
   try {
-    const result = await JarvisSpeech.getClipboard();
+    const result = await nativeBridge.getClipboard();
     return String(result?.text || "");
   } catch {
     return "";
@@ -458,11 +458,11 @@ export async function readAndroidClipboard(): Promise<string> {
 }
 
 export async function speakAndroid(text: string): Promise<void> {
-  await JarvisSpeech.speak({ text });
+  await nativeBridge.speak(text);
 }
 
 export async function stopAndroidSpeech(): Promise<void> {
-  await JarvisSpeech.stopSpeaking().catch(() => {});
+  await nativeBridge.stopSpeaking().catch(() => {});
 }
 
 export async function listenAndroidOnce(
