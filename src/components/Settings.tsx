@@ -4,19 +4,41 @@
  * system instruction editing, and hardware connection diagnostics.
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  X,
-  Sparkles,
+  Activity,
+  Brain,
+  Check,
+  Cpu,
+  Info,
+  KeyRound,
+  Mic2,
+  RefreshCcw,
+  ShieldCheck,
+  SlidersHorizontal,
   Trash2,
+  UserRound,
+  Volume2,
+  Wifi,
+  X,
 } from "lucide-react";
 import { AssistantSettings, ConnectionStatus } from "../types/assistant";
 import { MemoryItem } from "../types/memory";
 import { AVAILABLE_VOICES } from "../config/voiceConfig";
-import { CHAT_MODEL, CHAT_MODEL_NAME, LIVE_MODEL, LIVE_MODEL_NAME, THINKING_LEVEL } from "../config/modelConfig";
+import {
+  CHAT_MODEL,
+  CHAT_MODEL_NAME,
+  LIVE_MODEL,
+  LIVE_MODEL_NAME,
+  MEMORY_MODEL_NAME,
+} from "../config/modelConfig";
 import { ASSISTANT_PROFILES } from "../config/assistantProfiles";
 import { memoryService } from "../services/memoryService";
-import { getAndroidApiKey, setAndroidApiKey, validateAndroidApiKey } from "../services/androidRuntime";
+import {
+  getAndroidApiKey,
+  setAndroidApiKey,
+  validateAndroidApiKey,
+} from "../services/androidRuntime";
 
 interface SettingsProps {
   isOpen: boolean;
@@ -27,6 +49,62 @@ interface SettingsProps {
   isMicActive: boolean;
 }
 
+type SettingsTab = "general" | "character" | "voice" | "system" | "about";
+
+const TABS: Array<{
+  id: SettingsTab;
+  label: string;
+  Icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
+}> = [
+  { id: "general", label: "GENERAL", Icon: SlidersHorizontal },
+  { id: "character", label: "CHARACTER", Icon: UserRound },
+  { id: "voice", label: "VOICE", Icon: Mic2 },
+  { id: "system", label: "SYSTEM", Icon: Cpu },
+  { id: "about", label: "ABOUT", Icon: Info },
+];
+
+const Toggle: React.FC<{
+  checked: boolean;
+  onChange?: (value: boolean) => void;
+  label: string;
+}> = ({ checked, onChange, label }) => (
+  <button
+    type="button"
+    role="switch"
+    aria-checked={checked}
+    aria-label={label}
+    onClick={() => onChange?.(!checked)}
+    className={`relative h-7 w-12 shrink-0 rounded-full border transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/60 ${
+      checked
+        ? "border-cyan-300/40 bg-cyan-400/90"
+        : "border-white/10 bg-white/[0.07]"
+    }`}
+  >
+    <span
+      className={`absolute top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-white shadow-sm transition-transform duration-200 ${
+        checked ? "translate-x-[22px]" : "translate-x-[2px]"
+      }`}
+    />
+  </button>
+);
+
+const SectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div className="mb-3 px-0.5 text-[clamp(10px,2.1vw,12px)] font-mono uppercase tracking-[0.24em] text-neutral-500">
+    {children}
+  </div>
+);
+
+const Panel: React.FC<{ children: React.ReactNode; className?: string }> = ({
+  children,
+  className = "",
+}) => (
+  <div
+    className={`overflow-hidden rounded-[18px] border border-white/[0.075] bg-[#0a0b10]/90 ${className}`}
+  >
+    {children}
+  </div>
+);
+
 export const Settings: React.FC<SettingsProps> = ({
   isOpen,
   onClose,
@@ -35,6 +113,7 @@ export const Settings: React.FC<SettingsProps> = ({
   connectionStatus,
   isMicActive,
 }) => {
+  const [activeTab, setActiveTab] = useState<SettingsTab>("general");
   const [selectedProfileId, setSelectedProfileId] = useState(
     settings.selectedProfileId || (settings.voice === "Aoede" ? "ira" : "jarvis")
   );
@@ -44,32 +123,64 @@ export const Settings: React.FC<SettingsProps> = ({
   const [brainModel, setBrainModel] = useState(settings.brainModel || CHAT_MODEL);
   const [backgroundModel, setBackgroundModel] = useState(settings.backgroundModel || "auto");
   const [voiceEnabled, setVoiceEnabled] = useState(settings.voiceEnabled);
+  const [backgroundVoiceMode, setBackgroundVoiceMode] = useState(
+    settings.backgroundVoiceMode ?? false
+  );
   const [systemInstruction, setSystemInstruction] = useState(settings.systemInstruction);
-  const [savedNotice, setSavedNotice] = useState(false);
   const [androidApiKey, setAndroidApiKeyState] = useState("");
   const [apiKeyStatus, setApiKeyStatus] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [saveStep, setSaveStep] = useState<"idle" | "checking" | "saving">("idle");
 
+  const [memoryEnabled, setMemoryEnabled] = useState(true);
+  const [memories, setMemories] = useState<MemoryItem[]>([]);
+  const [isMemoriesOpen, setIsMemoriesOpen] = useState(false);
+  const [clearConfirming, setClearConfirming] = useState(false);
+
   useEffect(() => {
-    if (isOpen) {
-      setSelectedProfileId(settings.selectedProfileId || (settings.voice === "Aoede" ? "ira" : "jarvis"));
-      setAssistantName(settings.assistantName);
-      setVoice(settings.voice);
-      setLiveModel(settings.liveModel || LIVE_MODEL);
-      setBrainModel(settings.brainModel || CHAT_MODEL);
-      setBackgroundModel(settings.backgroundModel || "auto");
-      setVoiceEnabled(settings.voiceEnabled);
-      setSystemInstruction(settings.systemInstruction);
-      setAndroidApiKeyState(getAndroidApiKey());
-      setApiKeyStatus("");
-      setIsSaving(false);
-      setSaveStep("idle");
-    }
+    if (!isOpen) return;
+
+    setActiveTab("general");
+    setSelectedProfileId(
+      settings.selectedProfileId || (settings.voice === "Aoede" ? "ira" : "jarvis")
+    );
+    setAssistantName(settings.assistantName);
+    setVoice(settings.voice);
+    setLiveModel(settings.liveModel || LIVE_MODEL);
+    setBrainModel(settings.brainModel || CHAT_MODEL);
+    setBackgroundModel(settings.backgroundModel || "auto");
+    setVoiceEnabled(settings.voiceEnabled);
+    setBackgroundVoiceMode(settings.backgroundVoiceMode ?? false);
+    setSystemInstruction(settings.systemInstruction);
+    setAndroidApiKeyState(getAndroidApiKey());
+    setApiKeyStatus("");
+    setIsSaving(false);
+    setSaveStep("idle");
+    setIsMemoriesOpen(false);
   }, [isOpen, settings]);
+
+  const loadMemories = useCallback(async () => {
+    try {
+      setMemoryEnabled(memoryService.isEnabled());
+      setMemories(await memoryService.getMemories());
+    } catch {
+      setMemories([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    void loadMemories();
+    return memoryService.subscribe(() => {
+      void loadMemories();
+    });
+  }, [isOpen, loadMemories]);
+
+  const configured = useMemo(() => Boolean(getAndroidApiKey().trim()), [androidApiKey]);
 
   const handleSelectProfile = (profileId: string) => {
     setSelectedProfileId(profileId);
+
     if (profileId === "ira") {
       setAssistantName("Ira");
       setVoice("Aoede");
@@ -81,37 +192,9 @@ export const Settings: React.FC<SettingsProps> = ({
     }
   };
 
-  // Memory state
-  const [memoryEnabled, setMemoryEnabled] = useState<boolean>(true);
-  const [memories, setMemories] = useState<MemoryItem[]>([]);
-  const [isMemoriesOpen, setIsMemoriesOpen] = useState(false);
-  const [clearConfirming, setClearConfirming] = useState(false);
-
-  const loadMemories = useCallback(async () => {
-    try {
-      setMemoryEnabled(memoryService.isEnabled());
-      const all = await memoryService.getMemories();
-      setMemories(all);
-    } catch {
-      // Safe fallback
-    }
-  }, []);
-
-  useEffect(() => {
-    if (isOpen) {
-      loadMemories();
-      const unsub = memoryService.subscribe(() => {
-        loadMemories();
-      });
-      return unsub;
-    }
-  }, [isOpen, loadMemories]);
-
-  if (!isOpen) return null;
-
-  const handleToggleMemory = (enabled: boolean) => {
-    setMemoryEnabled(enabled);
-    memoryService.setEnabled(enabled);
+  const selectTab = (tab: SettingsTab) => {
+    setActiveTab(tab);
+    setIsMemoriesOpen(false);
   };
 
   const handleDeleteMemory = async (id: string, e: React.MouseEvent) => {
@@ -128,26 +211,26 @@ export const Settings: React.FC<SettingsProps> = ({
 
   const handleSave = async () => {
     if (isSaving) return;
-    setIsSaving(true);
 
+    setIsSaving(true);
     const currentStoredKey = getAndroidApiKey().trim();
     const enteredKey = androidApiKey.trim();
 
-    // Don't re-run a network model check when the API key hasn't changed.
-    // This makes normal settings saves effectively instant.
     if (enteredKey && enteredKey !== currentStoredKey) {
       try {
         setSaveStep("checking");
-        setApiKeyStatus("Checking Gemini API key + model access...");
+        setApiKeyStatus("Checking Gemini access…");
         await validateAndroidApiKey(enteredKey);
-        setApiKeyStatus("Gemini model check passed");
+        setApiKeyStatus("Gemini access verified");
       } catch (err) {
         setIsSaving(false);
         setSaveStep("idle");
-        setApiKeyStatus(err instanceof Error ? err.message : "API key validation failed");
+        setApiKeyStatus(
+          err instanceof Error ? err.message : "API key validation failed"
+        );
         return;
       }
-    } else if (!enteredKey) {
+    } else if (!enteredKey && currentStoredKey) {
       setAndroidApiKey("");
     }
 
@@ -160,164 +243,579 @@ export const Settings: React.FC<SettingsProps> = ({
       brainModel,
       backgroundModel,
       voiceEnabled,
+      backgroundVoiceMode,
       systemInstruction,
     });
-    setSavedNotice(true);
-    setTimeout(() => {
-      setSavedNotice(false);
-      onClose();
-    }, 600);
+
+    window.setTimeout(onClose, 220);
   };
 
-  const handleResetInstruction = () => {
-    if (selectedProfileId === "ira") {
-      setSystemInstruction(ASSISTANT_PROFILES.ira.systemInstruction);
-    } else {
-      setSystemInstruction(ASSISTANT_PROFILES.jarvis.systemInstruction);
-    }
+  const resetInstruction = () => {
+    setSystemInstruction(
+      selectedProfileId === "ira"
+        ? ASSISTANT_PROFILES.ira.systemInstruction
+        : ASSISTANT_PROFILES.jarvis.systemInstruction
+    );
   };
 
-  const getCategoryBadgeClass = (category: string) => {
-    switch (category) {
-      case "project":
-        return "bg-purple-500/10 text-purple-400 border-purple-500/20";
-      case "preference":
-        return "bg-emerald-500/10 text-[#00ffaa] border-[#00ffaa]/20";
-      case "technical":
-        return "bg-cyan-500/10 text-cyan-400 border-cyan-500/20";
-      case "instruction":
-        return "bg-amber-500/10 text-amber-400 border-amber-500/20";
-      case "personal":
-        return "bg-rose-500/10 text-rose-400 border-rose-500/20";
-      default:
-        return "bg-neutral-500/10 text-neutral-400 border-neutral-500/20";
-    }
-  };
+  if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-[70] bg-[#030307] text-[#e7e8f0] overflow-hidden">
-      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_50%_0%,rgba(86,72,255,0.10),transparent_38%),radial-gradient(circle_at_90%_70%,rgba(0,220,255,0.035),transparent_40%)]" />
-      <div className="relative h-full flex flex-col" style={{paddingTop:"max(env(safe-area-inset-top,0px), 24px)",paddingBottom:"max(env(safe-area-inset-bottom,0px), 8px)"}}>
-        <header className="shrink-0 px-6 pb-5 border-b border-white/[0.07] flex items-start justify-between">
-          <div className="flex items-start gap-4">
-            <div className="w-12 h-12 rounded-[15px] border border-indigo-400/30 bg-gradient-to-br from-indigo-500/25 to-cyan-400/10 flex items-center justify-center shadow-[0_0_28px_rgba(99,102,241,.14)]">
-              <Sparkles className="w-6 h-6 text-indigo-300" />
+  const tabContent = {
+    general: (
+      <div className="space-y-6">
+        <SectionLabel>Startup & Appearance</SectionLabel>
+
+        <Panel>
+          <div className="flex min-h-[76px] items-center justify-between gap-5 border-b border-white/[0.055] px-5 py-4">
+            <div className="min-w-0">
+              <div className="text-[clamp(13px,3.2vw,15px)] font-mono tracking-[0.06em] text-neutral-200">
+                BACKGROUND VOICE MODE
+              </div>
+              <p className="mt-1 text-[clamp(10px,2.4vw,12px)] leading-5 text-neutral-500">
+                Visible foreground service waits for your wake phrase
+              </p>
+            </div>
+            <Toggle
+              checked={backgroundVoiceMode}
+              onChange={setBackgroundVoiceMode}
+              label="Background voice mode"
+            />
+          </div>
+
+          <div className="flex min-h-[76px] items-center justify-between gap-5 px-5 py-4">
+            <div className="min-w-0">
+              <div className="text-[clamp(13px,3.2vw,15px)] font-mono tracking-[0.06em] text-neutral-200">
+                UI ANIMATIONS
+              </div>
+              <p className="mt-1 text-[clamp(10px,2.4vw,12px)] leading-5 text-neutral-500">
+                Motion and orb transitions are enabled
+              </p>
+            </div>
+            <Toggle checked={true} label="UI animations" />
+          </div>
+        </Panel>
+
+        <Panel className="p-5">
+          <SectionLabel>Assistant Identity</SectionLabel>
+          <input
+            value={assistantName}
+            onChange={(e) => setAssistantName(e.target.value)}
+            aria-label="Assistant name"
+            className="h-12 w-full rounded-[13px] border border-white/[0.075] bg-black/30 px-4 text-[clamp(14px,3.6vw,17px)] text-white outline-none transition-colors placeholder:text-neutral-700 focus:border-cyan-300/40"
+          />
+        </Panel>
+
+        <Panel className="p-5">
+          <SectionLabel>Connection</SectionLabel>
+          <div className="flex items-center gap-3">
+            <span
+              className={`h-2.5 w-2.5 rounded-full ${
+                connectionStatus === "online"
+                  ? "bg-cyan-300 shadow-[0_0_12px_rgba(34,211,238,.8)]"
+                  : "bg-amber-300"
+              }`}
+            />
+            <span className="text-[clamp(13px,3.2vw,15px)] font-mono capitalize text-neutral-200">
+              {connectionStatus}
+            </span>
+            <span className="text-[clamp(9px,2.2vw,11px)] font-mono uppercase tracking-[0.12em] text-neutral-600">
+              MIC {isMicActive ? "ACTIVE" : "STANDBY"}
+            </span>
+          </div>
+        </Panel>
+      </div>
+    ),
+
+    character: (
+      <div className="space-y-6">
+        <SectionLabel>Assistant Character</SectionLabel>
+
+        <div className="space-y-3">
+          {[
+            {
+              id: "jarvis",
+              name: "JARVIS",
+              description: "Calm, intelligent personal assistant",
+              voiceName: "Enceladus",
+            },
+            {
+              id: "ira",
+              name: "Ira",
+              description: "Warm Indian Hinglish voice persona",
+              voiceName: "Aoede",
+            },
+          ].map((profile) => {
+            const selected = selectedProfileId === profile.id;
+            return (
+              <button
+                key={profile.id}
+                type="button"
+                onClick={() => handleSelectProfile(profile.id)}
+                aria-pressed={selected}
+                className={`group w-full rounded-[18px] border p-5 text-left transition-all duration-200 ${
+                  selected
+                    ? "border-cyan-300/55 bg-cyan-400/[0.055] shadow-[inset_0_0_0_1px_rgba(34,211,238,.08)]"
+                    : "border-white/[0.075] bg-[#0a0b10] hover:border-white/[0.13]"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-[clamp(16px,4vw,19px)] font-mono text-white">
+                    {profile.name}
+                  </span>
+                  <span className="shrink-0 text-[clamp(9px,2.2vw,11px)] font-mono text-cyan-300/80">
+                    {profile.voiceName}
+                  </span>
+                </div>
+                <p className="mt-2 text-[clamp(11px,2.6vw,13px)] leading-5 text-neutral-500">
+                  {profile.description}
+                </p>
+                {selected && (
+                  <div className="mt-3 flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-[0.12em] text-cyan-300">
+                    <Check size={13} strokeWidth={2.2} />
+                    Active character
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        <Panel className="p-5">
+          <div className="flex items-center justify-between gap-3">
+            <SectionLabel>System Personality</SectionLabel>
+            <button
+              type="button"
+              onClick={resetInstruction}
+              className="mb-3 inline-flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-[0.1em] text-cyan-300/80 hover:text-cyan-200"
+            >
+              <RefreshCcw size={12} />
+              Reset
+            </button>
+          </div>
+
+          <textarea
+            value={systemInstruction}
+            onChange={(e) => setSystemInstruction(e.target.value)}
+            aria-label="System personality"
+            rows={8}
+            className="w-full resize-y rounded-[13px] border border-white/[0.075] bg-black/35 p-4 font-mono text-[clamp(11px,2.6vw,13px)] leading-6 text-neutral-300 outline-none transition-colors focus:border-cyan-300/35"
+          />
+        </Panel>
+      </div>
+    ),
+
+    voice: (
+      <div className="space-y-6">
+        <SectionLabel>Gemini Voice & Microphone</SectionLabel>
+
+        <Panel className="p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-[clamp(13px,3.2vw,15px)] font-mono text-neutral-200">
+                <KeyRound size={16} className="shrink-0 text-cyan-300/80" />
+                GEMINI API KEY
+              </div>
+              <p className="mt-1 text-[clamp(10px,2.3vw,12px)] text-neutral-500">
+                Protected Android Keystore storage
+              </p>
+            </div>
+
+            <span
+              className={`shrink-0 rounded-full border px-2.5 py-1 text-[9px] font-mono uppercase tracking-[0.08em] ${
+                configured
+                  ? "border-emerald-400/20 bg-emerald-400/[0.07] text-emerald-300"
+                  : "border-amber-400/20 bg-amber-400/[0.06] text-amber-300"
+              }`}
+            >
+              {configured ? "Configured" : "Not configured"}
+            </span>
+          </div>
+
+          <div className="mt-4 flex gap-2">
+            <input
+              type="password"
+              value={androidApiKey}
+              onChange={(e) => {
+                setAndroidApiKeyState(e.target.value);
+                setApiKeyStatus("");
+              }}
+              placeholder={configured ? "Enter new key to replace" : "Paste Gemini API key"}
+              className="min-w-0 h-11 flex-1 rounded-[12px] border border-white/[0.075] bg-black/35 px-3 font-mono text-[clamp(10px,2.5vw,12px)] text-white outline-none focus:border-cyan-300/35"
+            />
+            <button
+              type="button"
+              onClick={() => void handleSave()}
+              disabled={isSaving}
+              className="shrink-0 rounded-[12px] border border-white/[0.09] bg-white/[0.035] px-4 font-mono text-[10px] uppercase tracking-[0.08em] text-neutral-300 transition-colors hover:border-cyan-300/25 hover:text-cyan-200 disabled:opacity-50"
+            >
+              {isSaving && saveStep === "checking" ? "CHECK…" : "REPLACE"}
+            </button>
+          </div>
+
+          {apiKeyStatus && (
+            <div className="mt-3 flex items-start gap-2 text-[10px] font-mono leading-5 text-cyan-300/80">
+              <Activity size={13} className="mt-0.5 shrink-0" />
+              <span>{apiKeyStatus}</span>
+            </div>
+          )}
+        </Panel>
+
+        <Panel className="p-5">
+          <div className="flex items-center justify-between gap-5">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-[clamp(13px,3.2vw,15px)] font-mono text-neutral-200">
+                <Volume2 size={16} className="text-cyan-300/80" />
+                VOICE OUTPUT
+              </div>
+              <p className="mt-1 text-[clamp(10px,2.3vw,12px)] text-neutral-500">
+                Native Gemini audio through Android AudioTrack
+              </p>
+            </div>
+            <Toggle checked={voiceEnabled} onChange={setVoiceEnabled} label="Voice output" />
+          </div>
+
+          <div className="mt-5">
+            <label className="text-[10px] font-mono uppercase tracking-[0.18em] text-neutral-500">
+              Voice Persona
+            </label>
+            <select
+              value={voice}
+              onChange={(e) => setVoice(e.target.value)}
+              className="mt-2 h-11 w-full rounded-[12px] border border-white/[0.075] bg-black/35 px-3 font-mono text-[clamp(10px,2.6vw,12px)] text-white outline-none focus:border-cyan-300/35"
+            >
+              {AVAILABLE_VOICES.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name} — {item.description}
+                </option>
+              ))}
+            </select>
+          </div>
+        </Panel>
+      </div>
+    ),
+
+    system: (
+      <div className="space-y-6">
+        <SectionLabel>System Runtime</SectionLabel>
+
+        <Panel className="p-5">
+          <div className="flex items-center gap-3">
+            <div className="grid h-9 w-9 place-items-center rounded-[11px] border border-emerald-300/15 bg-emerald-300/[0.05]">
+              <Wifi size={16} className="text-emerald-300" />
             </div>
             <div>
-              <h2 className="text-[21px] font-semibold tracking-wide text-white">JARVIS Configuration <span className="text-cyan-300">✦</span></h2>
-              <p className="mt-1 text-[11px] font-mono tracking-[0.18em] text-neutral-500 uppercase">System Settings & Preferences</p>
+              <div className="text-[clamp(13px,3.2vw,15px)] font-mono text-white">
+                Native Bridge Online
+              </div>
+              <div className="mt-0.5 text-[10px] font-mono text-neutral-600">
+                Android action bridge available
+              </div>
             </div>
           </div>
-          <button onClick={onClose} aria-label="Close settings" className="w-12 h-12 rounded-[15px] border border-white/[0.08] bg-white/[0.025] flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/[0.06]">
-            <X className="w-6 h-6" />
-          </button>
-        </header>
+        </Panel>
 
-        <div className="shrink-0 px-6 py-4 border-b border-white/[0.07] overflow-x-auto no-scrollbar">
-          <div className="flex gap-2 min-w-max">
+        <Panel className="p-5">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="text-[clamp(13px,3.2vw,15px)] font-mono text-neutral-200">
+                AI MODELS
+              </div>
+              <div className="mt-1 text-[10px] font-mono text-neutral-600">
+                Runtime routing
+              </div>
+            </div>
+            <span className="text-[9px] font-mono uppercase tracking-[0.12em] text-cyan-300/70">
+              Active
+            </span>
+          </div>
+
+          <div className="mt-4 space-y-2">
             {[
-              ["general","◉","GENERAL"],["character","✧","CHARACTER"],["voice","♩","VOICE"],["system","▣","SYSTEM"],["about","ⓘ","ABOUT"]
-            ].map(([id,icon,label]) => (
-              <button key={id} onClick={()=>document.getElementById(`jarvis-settings-${id}`)?.scrollIntoView({behavior:"smooth",block:"start"})}
-                className="px-4 py-2.5 rounded-full border border-white/[0.07] bg-white/[0.035] text-[11px] font-mono tracking-wider text-neutral-400 hover:text-white hover:border-cyan-400/30 whitespace-nowrap">
-                <span className="mr-1.5">{icon}</span>{label}
-              </button>
+              ["BRAIN", brainModel || CHAT_MODEL],
+              ["LIVE", liveModel || LIVE_MODEL],
+              ["MEMORY", MEMORY_MODEL_NAME],
+            ].map(([label, value]) => (
+              <div
+                key={label}
+                className="flex items-center justify-between gap-4 rounded-[12px] border border-white/[0.055] bg-black/20 px-3.5 py-3"
+              >
+                <span className="text-[9px] font-mono tracking-[0.15em] text-neutral-600">
+                  {label}
+                </span>
+                <span className="max-w-[72%] break-all text-right font-mono text-[clamp(10px,2.5vw,12px)] text-neutral-200">
+                  {value}
+                </span>
+              </div>
             ))}
           </div>
+        </Panel>
+
+        <Panel className="p-5">
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-[clamp(13px,3.2vw,15px)] font-mono text-neutral-200">
+                <Brain size={16} className="text-cyan-300/80" />
+                PERSISTENT LONG-TERM MEMORY
+              </div>
+              <p className="mt-1 text-[clamp(10px,2.3vw,12px)] text-neutral-500">
+                Remember durable facts across sessions
+              </p>
+            </div>
+            <Toggle
+              checked={memoryEnabled}
+              onChange={(enabled) => {
+                setMemoryEnabled(enabled);
+                memoryService.setEnabled(enabled);
+              }}
+              label="Persistent long-term memory"
+            />
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+            <button
+              type="button"
+              onClick={() => setIsMemoriesOpen((value) => !value)}
+              className="text-[10px] font-mono uppercase tracking-[0.12em] text-cyan-300 hover:text-cyan-200"
+            >
+              {isMemoriesOpen ? "Hide" : "View"} Memories ({memories.length})
+            </button>
+            {memories.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setClearConfirming(true)}
+                className="text-[10px] font-mono uppercase tracking-[0.12em] text-rose-400/80 hover:text-rose-300"
+              >
+                Clear All
+              </button>
+            )}
+          </div>
+
+          {isMemoriesOpen && (
+            <div className="mt-3 space-y-2 border-t border-white/[0.055] pt-3">
+              {memories.length === 0 ? (
+                <p className="py-3 text-[11px] font-mono text-neutral-600">
+                  No memories stored yet.
+                </p>
+              ) : (
+                memories.map((memory) => (
+                  <div
+                    key={memory.id}
+                    className="flex items-start gap-3 rounded-[12px] border border-white/[0.055] bg-black/20 px-3 py-2.5"
+                  >
+                    <p className="min-w-0 flex-1 text-[clamp(11px,2.6vw,13px)] leading-5 text-neutral-300">
+                      {memory.content}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={(event) => void handleDeleteMemory(memory.id, event)}
+                      aria-label="Delete memory"
+                      className="mt-0.5 shrink-0 text-neutral-600 transition-colors hover:text-rose-300"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                ))
+              )}
+
+              {clearConfirming && (
+                <div className="flex items-center gap-2 rounded-[12px] border border-rose-400/15 bg-rose-400/[0.035] p-3">
+                  <span className="flex-1 text-[10px] font-mono text-rose-200/80">
+                    Delete all persistent memories?
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void handleClearAllMemories()}
+                    className="rounded-lg bg-rose-500/15 px-3 py-1.5 text-[9px] font-mono uppercase text-rose-300"
+                  >
+                    Clear
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setClearConfirming(false)}
+                    className="rounded-lg bg-white/[0.04] px-3 py-1.5 text-[9px] font-mono uppercase text-neutral-400"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </Panel>
+      </div>
+    ),
+
+    about: (
+      <div className="space-y-6">
+        <SectionLabel>About JARVIS</SectionLabel>
+
+        <Panel className="p-5">
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-[12px] border border-cyan-300/15 bg-cyan-300/[0.04]">
+              <ShieldCheck size={18} className="text-cyan-300/80" />
+            </div>
+            <div>
+              <div className="text-[clamp(16px,4vw,19px)] text-white">
+                JARVIS AI Assistant
+              </div>
+              <div className="mt-0.5 text-[10px] font-mono uppercase tracking-[0.16em] text-neutral-600">
+                Personal assistant system
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6 space-y-3">
+            {[
+              ["VERSION", "V2.0.0"],
+              ["ENGINE", LIVE_MODEL_NAME.replace(" Flash Live Preview", " Live")],
+              ["PLATFORM", "Capacitor Android"],
+              ["WAKE WORD", "Android SpeechRecognizer"],
+            ].map(([label, value]) => (
+              <div
+                key={label}
+                className="flex items-center justify-between gap-5 border-b border-white/[0.045] pb-3 last:border-0 last:pb-0"
+              >
+                <span className="text-[10px] font-mono tracking-[0.15em] text-neutral-600">
+                  {label}
+                </span>
+                <span className="text-right text-[clamp(10px,2.6vw,13px)] font-mono text-neutral-300">
+                  {value}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Panel>
+
+        <div className="rounded-[15px] border border-amber-300/15 bg-amber-300/[0.035] px-4 py-3 text-[10px] font-mono leading-5 text-amber-200/75">
+          Keep the JARVIS tab active for wake-word detection. Microphone access is required for voice activation.
         </div>
+      </div>
+    ),
+  }[activeTab];
 
-        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-8">
-          <section id="jarvis-settings-general" className="space-y-5">
-            <p className="text-[11px] font-mono tracking-[0.2em] text-neutral-500 uppercase">Startup & Appearance</p>
-            <div className="space-y-0 rounded-2xl border border-white/[0.07] overflow-hidden bg-white/[0.012]">
-              <div className="flex items-center justify-between p-5 border-b border-white/[0.06]">
-                <div><div className="text-sm font-mono uppercase tracking-wider text-neutral-200">Background Voice Mode</div><div className="mt-1 text-[10px] text-neutral-500">Visible foreground service waits for your wake phrase</div></div>
-                <label className="relative inline-flex cursor-pointer"><input type="checkbox" checked={settings.backgroundVoiceMode ?? false} onChange={e=>onSave({backgroundVoiceMode:e.target.checked})} className="sr-only peer"/><div className="w-14 h-7 rounded-full bg-neutral-800 peer-checked:bg-cyan-500 after:content-[''] after:absolute after:top-1 after:left-1 after:w-5 after:h-5 after:bg-white after:rounded-full after:transition-transform peer-checked:after:translate-x-7"/></label>
+  return (
+    <div className="jarvis-settings fixed inset-0 z-[70] overflow-hidden bg-[#04060a] text-[#e7e8f0]">
+      <style>{`
+        .jarvis-settings {
+          -webkit-text-size-adjust: 100%;
+          text-size-adjust: 100%;
+          font-size: clamp(14px, 1.1vw + 8px, 16px);
+        }
+        .jarvis-settings button,
+        .jarvis-settings input,
+        .jarvis-settings textarea,
+        .jarvis-settings select {
+          -webkit-text-size-adjust: 100%;
+          text-size-adjust: 100%;
+        }
+        @media (max-width: 420px) {
+          .jarvis-settings .settings-side-padding { padding-left: 16px; padding-right: 16px; }
+        }
+      `}</style>
+
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_-10%,rgba(38,212,255,.065),transparent_42%),linear-gradient(180deg,#06080d_0%,#030407_100%)]" />
+
+      <div
+        className="relative flex h-full min-h-0 flex-col"
+        style={{
+          paddingTop: "max(env(safe-area-inset-top, 0px), 18px)",
+          paddingBottom: "max(env(safe-area-inset-bottom, 0px), 6px)",
+        }}
+      >
+        <header className="settings-side-padding shrink-0 border-b border-white/[0.065] px-5 pb-4 pt-1">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="grid h-11 w-11 shrink-0 place-items-center rounded-[14px] border border-cyan-300/20 bg-cyan-300/[0.045] shadow-[0_0_28px_rgba(34,211,238,.07)]">
+                <SlidersHorizontal size={20} strokeWidth={1.8} className="text-cyan-200" />
               </div>
-              <div className="flex items-center justify-between p-5">
-                <div><div className="text-sm font-mono uppercase tracking-wider text-neutral-200">UI Animations</div><div className="mt-1 text-[10px] text-neutral-500">Enable motion and orb transitions</div></div>
-                <label className="relative inline-flex cursor-pointer"><input type="checkbox" checked={true} readOnly className="sr-only peer"/><div className="w-14 h-7 rounded-full bg-cyan-500 after:content-[''] after:absolute after:top-1 after:left-1 after:w-5 after:h-5 after:bg-white after:rounded-full after:transition-transform after:translate-x-7"/></label>
+
+              <div className="min-w-0">
+                <h2 className="truncate text-[clamp(19px,5.2vw,25px)] font-semibold tracking-[0.01em] text-white">
+                  JARVIS Configuration
+                  <span className="ml-1.5 text-cyan-300">✦</span>
+                </h2>
+                <p className="mt-0.5 truncate text-[clamp(9px,2.2vw,11px)] font-mono uppercase tracking-[0.22em] text-neutral-600">
+                  System Settings & Preferences
+                </p>
               </div>
             </div>
 
-            <div className="grid gap-3">
-              <div className="p-5 rounded-2xl border border-white/[0.07] bg-[#0b0b10]">
-                <div className="text-[11px] font-mono tracking-[0.18em] text-neutral-500 uppercase mb-3">Assistant Identity</div>
-                <input value={assistantName} onChange={e=>setAssistantName(e.target.value)} className="w-full h-12 rounded-xl bg-black/30 border border-white/[0.08] px-4 text-white outline-none focus:border-cyan-400/50" />
-              </div>
-              <div className="p-5 rounded-2xl border border-white/[0.07] bg-[#0b0b10]">
-                <div className="text-[11px] font-mono tracking-[0.18em] text-neutral-500 uppercase mb-3">Connection</div>
-                <div className="flex items-center gap-3"><span className={`w-2.5 h-2.5 rounded-full ${connectionStatus==="online"?"bg-cyan-400 shadow-[0_0_10px_#22d3ee]":"bg-amber-400"}`}/><span className="font-mono text-sm text-neutral-200 capitalize">{connectionStatus}</span><span className="text-[10px] font-mono text-neutral-500">MIC {isMicActive?"ACTIVE":"STANDBY"}</span></div>
-              </div>
-            </div>
-          </section>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close settings"
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-[14px] border border-white/[0.08] bg-white/[0.025] text-neutral-400 transition-all hover:border-cyan-300/20 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50"
+            >
+              <X size={23} strokeWidth={1.7} />
+            </button>
+          </div>
+        </header>
 
-          <section id="jarvis-settings-character" className="space-y-5">
-            <p className="text-[11px] font-mono tracking-[0.2em] text-neutral-500 uppercase">Assistant Character</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {[{id:"jarvis",name:"JARVIS",desc:"Calm, intelligent personal assistant",voice:"Enceladus"},{id:"ira",name:"Ira",desc:"Warm Indian Hinglish voice persona",voice:"Aoede"}].map(p=>(
-                <button key={p.id} onClick={()=>handleSelectProfile(p.id)} className={`text-left p-5 rounded-2xl border ${selectedProfileId===p.id?"border-cyan-400/50 bg-cyan-400/[0.07]":"border-white/[0.07] bg-[#0b0b10]"}`}>
-                  <div className="flex items-center justify-between"><span className="font-mono tracking-wider text-white">{p.name}</span><span className="text-[9px] font-mono text-cyan-300">{p.voice}</span></div>
-                  <p className="mt-2 text-xs text-neutral-500">{p.desc}</p>
+        <nav
+          aria-label="JARVIS settings sections"
+          className="settings-side-padding shrink-0 overflow-x-auto border-b border-white/[0.06] px-5 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          <div className="flex min-w-max gap-2">
+            {TABS.map(({ id, label, Icon }) => {
+              const active = activeTab === id;
+
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => selectTab(id)}
+                  aria-current={active ? "page" : undefined}
+                  className={`relative inline-flex h-10 shrink-0 items-center gap-2 rounded-full border px-4 font-mono text-[clamp(9px,2.3vw,11px)] uppercase tracking-[0.13em] transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 ${
+                    active
+                      ? "border-cyan-300/35 bg-cyan-300/[0.09] text-cyan-100 shadow-[0_0_18px_rgba(34,211,238,.055)]"
+                      : "border-white/[0.07] bg-white/[0.025] text-neutral-500 hover:border-white/[0.14] hover:text-neutral-200"
+                  }`}
+                >
+                  <Icon size={14} strokeWidth={1.7} />
+                  {label}
+                  {active && (
+                    <span className="absolute -bottom-[13px] left-1/2 h-[2px] w-8 -translate-x-1/2 rounded-full bg-cyan-300 shadow-[0_0_10px_rgba(34,211,238,.7)]" />
+                  )}
                 </button>
-              ))}
-            </div>
-            <div className="p-5 rounded-2xl border border-white/[0.07] bg-[#0b0b10]">
-              <label className="text-[11px] font-mono tracking-wider text-neutral-500 uppercase">System Personality</label>
-              <textarea value={systemInstruction} onChange={e=>setSystemInstruction(e.target.value)} rows={7} className="mt-3 w-full rounded-xl bg-black/30 border border-white/[0.08] p-4 text-xs font-mono leading-6 text-neutral-300 outline-none focus:border-cyan-400/40 resize-y"/>
-              <button onClick={handleResetInstruction} className="mt-3 text-[10px] font-mono text-cyan-300">↻ RESET DEFAULT</button>
-            </div>
-          </section>
+              );
+            })}
+          </div>
+        </nav>
 
-          <section id="jarvis-settings-voice" className="space-y-5">
-            <p className="text-[11px] font-mono tracking-[0.2em] text-neutral-500 uppercase">Gemini Voice & Microphone</p>
-            <div className="p-5 rounded-2xl border border-white/[0.07] bg-[#0b0b10]">
-              <div className="flex items-center justify-between"><div><div className="text-sm font-mono text-neutral-200 uppercase">Gemini API Key</div><div className="mt-1 text-[10px] font-mono text-neutral-500">Android Keystore encrypted storage</div></div><span className="px-2.5 py-1 rounded-full bg-emerald-400/10 border border-emerald-400/20 text-[9px] font-mono text-emerald-300 uppercase">Configured</span></div>
-              <div className="mt-4 flex gap-2"><input type="password" value={androidApiKey} onChange={e=>{setAndroidApiKeyState(e.target.value);setApiKeyStatus("")}} placeholder="Enter a new key to replace it" className="min-w-0 flex-1 h-11 rounded-xl bg-black/30 border border-white/[0.08] px-3 text-xs font-mono text-white outline-none"/><button onClick={handleSave} className="px-4 rounded-xl bg-white/[0.05] border border-white/[0.08] text-[10px] font-mono text-neutral-300">REPLACE</button></div>
-              {apiKeyStatus&&<p className="mt-2 text-[10px] text-cyan-300 font-mono">{apiKeyStatus}</p>}
-            </div>
-            <div className="p-5 rounded-2xl border border-white/[0.07] bg-[#0b0b10]">
-              <div className="flex items-center justify-between"><div><div className="text-sm font-mono uppercase text-neutral-200">Voice Output</div><div className="mt-1 text-[10px] text-neutral-500">Native Gemini audio through Android AudioTrack</div></div><label className="relative inline-flex cursor-pointer"><input type="checkbox" checked={voiceEnabled} onChange={e=>setVoiceEnabled(e.target.checked)} className="sr-only peer"/><div className="w-14 h-7 rounded-full bg-neutral-800 peer-checked:bg-cyan-500 after:content-[''] after:absolute after:top-1 after:left-1 after:w-5 after:h-5 after:bg-white after:rounded-full after:transition-transform peer-checked:after:translate-x-7"/></label></div>
-              <div className="mt-5"><label className="text-[10px] font-mono tracking-wider text-neutral-500 uppercase">Voice Persona</label><select value={voice} onChange={e=>setVoice(e.target.value)} className="mt-2 w-full h-11 rounded-xl bg-black/30 border border-white/[0.08] px-3 text-xs text-white outline-none">{AVAILABLE_VOICES.map(v=><option key={v.id} value={v.id}>{v.name} — {v.description}</option>)}</select></div>
-            </div>
-          </section>
+        <main className="settings-side-padding min-h-0 flex-1 overflow-y-auto px-5 py-6">
+          <div className="mx-auto w-full max-w-[720px] pb-5">
+            {tabContent}
+          </div>
+        </main>
 
-          <section id="jarvis-settings-system" className="space-y-5">
-            <p className="text-[11px] font-mono tracking-[0.2em] text-neutral-500 uppercase">Android Action Bridge</p>
-            <div className="p-5 rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.035]">
-              <div className="flex items-center gap-3"><span className="w-3 h-3 rounded-full bg-emerald-400 shadow-[0_0_12px_#34d399]"/><div><div className="font-mono text-sm text-white">Native Bridge Online</div><div className="text-[10px] font-mono text-neutral-500">35 controlled capabilities registered</div></div></div>
-              <div className="mt-5 grid grid-cols-2 gap-2 text-[10px] font-mono text-neutral-400"><span>App discovery</span><span>Camera & gallery</span><span>Call/SMS prepare</span><span>WhatsApp prepare</span><span>Alarm & timer</span><span>Maps & search</span><span>Media & volume</span><span>Torch & settings</span></div>
-            </div>
-            <div className="p-5 rounded-2xl border border-white/[0.07] bg-[#0b0b10]">
-              <div className="flex items-center justify-between"><div><div className="text-sm font-mono uppercase text-neutral-200">AI Models</div><div className="mt-1 text-[10px] text-neutral-500">Runtime routing</div></div><span className="text-[9px] font-mono text-cyan-300">ACTIVE ROUTING</span></div>
-              <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="rounded-xl border border-white/[0.07] p-3"><span className="text-[9px] font-mono text-neutral-500">BRAIN</span><p className="mt-2 text-xs font-mono text-white">{brainModel}</p></div>
-                <div className="rounded-xl border border-white/[0.07] p-3"><span className="text-[9px] font-mono text-neutral-500">LIVE</span><p className="mt-2 text-xs font-mono text-white">{liveModel}</p></div>
-                <div className="rounded-xl border border-white/[0.07] p-3"><span className="text-[9px] font-mono text-neutral-500">MEMORY</span><p className="mt-2 text-xs font-mono text-white">Gemini 2.5 Flash-Lite → fallback 3.5 Flash-Lite</p></div>
-              </div>
-            </div>
-            <div className="p-5 rounded-2xl border border-white/[0.07] bg-[#0b0b10]">
-              <div className="flex items-center justify-between"><div><div className="text-sm font-mono uppercase text-neutral-200">Persistent Long-Term Memory</div><div className="mt-1 text-[10px] text-neutral-500">Remember durable facts across sessions</div></div><label className="relative inline-flex cursor-pointer"><input type="checkbox" checked={memoryEnabled} onChange={e=>handleToggleMemory(e.target.checked)} className="sr-only peer"/><div className="w-14 h-7 rounded-full bg-neutral-800 peer-checked:bg-cyan-500 after:content-[''] after:absolute after:top-1 after:left-1 after:w-5 after:h-5 after:bg-white after:rounded-full after:transition-transform peer-checked:after:translate-x-7"/></label></div>
-              <button onClick={()=>setIsMemoriesOpen(v=>!v)} className="mt-4 text-[10px] font-mono text-cyan-300">{isMemoriesOpen?"HIDE":"VIEW"} MEMORIES ({memories.length})</button>
-              {isMemoriesOpen&&<div className="mt-3 space-y-2 max-h-60 overflow-y-auto">{memories.length===0?<p className="text-xs font-mono text-neutral-600">No memories stored yet.</p>:memories.map(mem=><div key={mem.id} className="p-3 rounded-xl bg-black/30 border border-white/[0.06] flex items-start justify-between gap-2"><p className="text-xs text-neutral-300">{mem.content}</p><button onClick={e=>void handleDeleteMemory(mem.id,e)} className="text-neutral-600 hover:text-rose-400"><Trash2 className="w-3.5 h-3.5"/></button></div>)}</div>}
-              {memories.length>0&&<button onClick={()=>setClearConfirming(true)} className="mt-3 text-[10px] font-mono text-rose-400">CLEAR ALL MEMORIES</button>}
-              {clearConfirming&&<div className="mt-2 flex gap-2"><button onClick={()=>void handleClearAllMemories()} className="px-3 py-1.5 rounded-lg bg-rose-500/20 text-[10px] text-rose-300">CLEAR</button><button onClick={()=>setClearConfirming(false)} className="px-3 py-1.5 rounded-lg bg-white/[0.05] text-[10px] text-neutral-300">CANCEL</button></div>}
-            </div>
-          </section>
+        <footer className="shrink-0 border-t border-white/[0.065] bg-[#04060a]/95 px-5 py-2.5 backdrop-blur-xl">
+          <div className="mx-auto flex max-w-[720px] items-center justify-between gap-3">
+            <span className="hidden text-[9px] font-mono uppercase tracking-[0.16em] text-neutral-700 min-[380px]:block">
+              Preferences auto-save
+            </span>
 
-          <section id="jarvis-settings-about" className="space-y-5 pb-6">
-            <p className="text-[11px] font-mono tracking-[0.2em] text-neutral-500 uppercase">About JARVIS</p>
-            <div className="p-6 rounded-2xl border border-white/[0.07] bg-[#0b0b10]">
-              <div className="text-lg text-white">JARVIS AI Assistant <span className="text-cyan-300">✦</span></div>
-              <div className="mt-5 grid grid-cols-2 gap-y-4 text-xs font-mono"><span className="text-neutral-500">VERSION</span><span className="text-right text-neutral-300">V2.0.0</span><span className="text-neutral-500">ENGINE</span><span className="text-right text-neutral-300">Gemini Live</span><span className="text-neutral-500">PLATFORM</span><span className="text-right text-neutral-300">Capacitor Android</span><span className="text-neutral-500">WAKE WORD</span><span className="text-right text-neutral-300">Android SpeechRecognizer</span></div>
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="h-10 rounded-[11px] px-4 text-[10px] font-mono uppercase tracking-[0.12em] text-neutral-500 transition-colors hover:text-neutral-200"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSave()}
+                disabled={isSaving}
+                className="inline-flex h-10 items-center gap-2 rounded-[12px] bg-cyan-400 px-5 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[#031015] shadow-[0_0_20px_rgba(34,211,238,.12)] transition-all hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isSaving ? (
+                  <Activity size={13} className="animate-pulse" />
+                ) : (
+                  <Check size={13} strokeWidth={2.5} />
+                )}
+                {isSaving ? (saveStep === "checking" ? "Checking" : "Saving") : "Save Changes"}
+              </button>
             </div>
-            <div className="p-4 rounded-2xl border border-amber-400/20 bg-amber-400/[0.05] text-xs font-mono text-amber-200">Keep the JARVIS tab active for wake-word detection. Microphone access is required for voice activation.</div>
-          </section>
-        </div>
-
-        <footer className="shrink-0 px-6 py-3 border-t border-white/[0.07] flex items-center justify-between bg-black/20">
-          <span className="text-[9px] font-mono tracking-[0.18em] text-neutral-600 uppercase">Preferences auto-save</span>
-          <div className="flex gap-2"><button onClick={onClose} className="px-4 py-2 rounded-xl text-[10px] font-mono text-neutral-500">CANCEL</button><button onClick={handleSave} disabled={isSaving} className="px-5 py-2 rounded-xl bg-cyan-500 text-black text-[10px] font-mono font-bold tracking-wider disabled:opacity-50">{isSaving?saveStep==="checking"?"CHECKING API…":"SAVING…":"SAVE CHANGES"}</button></div>
+          </div>
         </footer>
       </div>
     </div>
