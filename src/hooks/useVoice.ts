@@ -8,6 +8,7 @@ import { Capacitor } from "@capacitor/core";
 import { audioManager, AudioChunkCallback, InterruptCallback } from "../services/audioManager";
 import { requestAndroidMicrophonePermission } from "../services/nativePermissions";
 import { startAndroidPcmCapture } from "../services/androidRuntime";
+import { nativeBridge } from "../services/nativeBridge";
 
 export function useVoice() {
   const [isMicActive, setIsMicActive] = useState<boolean>(false);
@@ -107,6 +108,11 @@ export function useVoice() {
   }, []);
 
   const stopPlayback = useCallback(() => {
+    if (Capacitor.getPlatform() === "android" && nativeBridge.isAvailable()) {
+      void nativeBridge.stopPlayback().catch((err) => {
+        console.warn("[NativeAudio] stopPlayback failed:", err);
+      });
+    }
     audioManager.stopPlayback();
     setOutputLevel(0);
   }, []);
@@ -117,6 +123,15 @@ export function useVoice() {
   }, []);
 
   const playAudioChunk = useCallback((base64Data: string, onEnd?: () => void) => {
+    if (Capacitor.getPlatform() === "android" && nativeBridge.isAvailable()) {
+      void nativeBridge.playPcm(base64Data, 24000)
+        .then(() => onEnd?.())
+        .catch((err) => {
+          console.error("[NativeAudio] PCM output failed:", err);
+          onEnd?.();
+        });
+      return;
+    }
     audioManager.playAudioChunk(base64Data, onEnd);
   }, []);
 
