@@ -49,6 +49,11 @@ jobs:
       - name: Generate Capacitor Android project
         run: npx cap add android
 
+      - name: Enable Kotlin Android compilation
+        run: |
+          sed -i "/classpath 'com.android.tools.build:gradle:/a\\    classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20'" android/build.gradle
+          sed -i "1a apply plugin: 'org.jetbrains.kotlin.android'" android/app/build.gradle
+
       - name: Install committed native Android sources
         run: |
           mkdir -p android/app/src/main/java/com/jarvis/ai
