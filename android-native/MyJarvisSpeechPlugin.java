@@ -1,5 +1,7 @@
 package com.jarvis.ai;
 
+import com.jarvis.ai.audio.JarvisAudioEngine;
+
 import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -53,6 +55,7 @@ public class MyJarvisSpeechPlugin extends Plugin {
     private Thread pcmThread;
     private volatile boolean pcmCaptureActive;
     private String wakeWord = "jarvis";
+    private final JarvisAudioEngine audioEngine = new JarvisAudioEngine();
 
     @Override
     public void load() {
@@ -431,6 +434,32 @@ public class MyJarvisSpeechPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void playPcm(PluginCall call) {
+        String data = call.getString("data", "");
+        int sampleRate = call.getInt("sampleRate", 24000);
+        if (data == null || data.isEmpty()) {
+            call.resolve();
+            return;
+        }
+        main.post(() -> {
+            try {
+                audioEngine.enqueueBase64Pcm(data, sampleRate);
+                call.resolve();
+            } catch (Throwable e) {
+                call.reject(e.getMessage() == null ? "Unable to play native PCM" : e.getMessage());
+            }
+        });
+    }
+
+    @PluginMethod
+    public void stopPlayback(PluginCall call) {
+        main.post(() -> {
+            audioEngine.stop();
+            call.resolve();
+        });
+    }
+
+    @PluginMethod
     public void startListening(PluginCall call) {
         main.post(() -> {
             if (ContextCompat.checkSelfPermission(getContext(), Manifest.permission.RECORD_AUDIO)
@@ -574,6 +603,7 @@ public class MyJarvisSpeechPlugin extends Plugin {
         main.post(() -> {
             stopRecognizer();
             stopPcmCaptureInternal();
+            audioEngine.stop();
             if (tts != null) { try { tts.stop(); tts.shutdown(); } catch (Throwable ignored) {} tts = null; }
         });
         super.handleOnDestroy();
