@@ -4,7 +4,6 @@ import com.jarvis.ai.audio.JarvisAudioEngine;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
-import androidx.annotation.RequiresApi;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
@@ -204,9 +203,6 @@ public class MyJarvisSpeechPlugin extends Plugin {
                 String lower = heard.toLowerCase(Locale.ROOT);
                 int index = lower.indexOf(wakeWord);
                 if (index >= 0) {
-                    // Pause the wake recognizer before handing the utterance to the
-                    // command pipeline. This prevents SpeechRecognizer instances
-                    // from fighting over the microphone during the command turn.
                     wakeWordActive = false;
                     stopRecognizer();
                     String command = heard.substring(index + wakeWord.length()).trim();
@@ -251,7 +247,7 @@ public class MyJarvisSpeechPlugin extends Plugin {
                 stopPcmCaptureInternal();
 
                 final int sampleRate = 16000;
-                final int chunkSamples = 640; // 40 ms at 16 kHz
+                final int chunkSamples = 640;
                 final int channelMask = AudioFormat.CHANNEL_IN_MONO;
                 final int encoding = AudioFormat.ENCODING_PCM_16BIT;
 
@@ -279,9 +275,6 @@ public class MyJarvisSpeechPlugin extends Plugin {
                 try {
                     record = builder.build();
                 } catch (Throwable primaryError) {
-                    // A few vendor devices reject VOICE_COMMUNICATION at 16 kHz.
-                    // Fall back to VOICE_RECOGNITION, which still enables the
-                    // platform's speech-oriented processing path where available.
                     builder = new AudioRecord.Builder()
                             .setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
                             .setAudioFormat(new AudioFormat.Builder()
@@ -290,7 +283,7 @@ public class MyJarvisSpeechPlugin extends Plugin {
                                     .setEncoding(encoding)
                                     .build())
                             .setBufferSizeInBytes(bufferBytes);
-                    if (android.os.Build.VERSION.SDK_INT >= 29) {
+                    if (android.os.Build.VERSION.SDK_INT >= 30) {
                         try { builder.setPrivacySensitive(true); } catch (Throwable ignored) {}
                     }
                     record = builder.build();
@@ -306,9 +299,6 @@ public class MyJarvisSpeechPlugin extends Plugin {
                 pcmRecorder = activeRecord;
                 final int sessionId = activeRecord.getAudioSessionId();
 
-                // Do not stack explicit AEC/NS/AGC effects. The Android
-                // speech-oriented input source handles the vendor voice path;
-                // stacking effects here caused pumping/clipping on some phones.
                 boolean aecEnabled = false;
                 boolean nsEnabled = false;
                 boolean agcEnabled = false;
@@ -347,8 +337,6 @@ public class MyJarvisSpeechPlugin extends Plugin {
                             }
                             float rms = (float) Math.sqrt(sumSquares / Math.max(1, read));
 
-                            // Adaptive floor: only learn while we are not confidently
-                            // hearing speech, so distant speech remains detectable.
                             float threshold = Math.max(0.009f, noiseFloor * 2.4f);
                             boolean speech = rms >= threshold;
 
@@ -416,24 +404,6 @@ public class MyJarvisSpeechPlugin extends Plugin {
             stopPcmCaptureInternal();
             call.resolve();
         });
-    }
-
-    private void stopPcmCaptureInternal() {
-        pcmCaptureActive = false;
-
-        AudioRecord record = pcmRecorder;
-        pcmRecorder = null;
-
-        if (record != null) {
-            try { record.stop(); } catch (Throwable ignored) {}
-            try { record.release(); } catch (Throwable ignored) {}
-        }
-
-        Thread thread = pcmThread;
-        pcmThread = null;
-        if (thread != null && thread != Thread.currentThread()) {
-            try { thread.interrupt(); } catch (Throwable ignored) {}
-        }
     }
 
     @PluginMethod
