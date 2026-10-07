@@ -248,7 +248,7 @@ export default function App() {
     <div className="relative w-full h-[100dvh] flex flex-col justify-between overflow-hidden bg-[#08090a] text-[#e6e8eb] select-none">
       {showAndroidSetup && <AndroidSetup onComplete={() => setShowAndroidSetup(false)} />}
       {/* Background ambient lighting */}
-      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_50%_40%,rgba(0,255,170,0.03)_0%,transparent_65%)]" />
+      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_50%_40%,rgba(32,217,255,0.03)_0%,transparent_65%)]" />
 
       {/* Conditional Rendering between Browser Overlay and Normal JARVIS Interface */}
       {browserOpen ? (
@@ -375,7 +375,7 @@ export default function App() {
               </div>
 
               <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.05] text-center">
-                <div className="text-[11px] font-mono font-medium text-[#00ffaa]/90 tracking-wider uppercase">
+                <div className="text-[11px] font-mono font-medium text-[#20d9ff]/90 tracking-wider uppercase">
                   Powered by Gemini
                 </div>
                 <div className="text-[10px] font-sans text-neutral-500 mt-0.5">
