@@ -101,7 +101,7 @@ export const AIOrb: React.FC<AIOrbProps> = ({
 
     // 2. Latitude and Longitude Grid Lines (Restrained technical aesthetic)
     const gridMat = new THREE.LineBasicMaterial({
-      color: 0x00d287,
+      color: 0x10b9dc,
       transparent: true,
       opacity: 0.14,
       blending: THREE.AdditiveBlending,
@@ -188,7 +188,7 @@ export const AIOrb: React.FC<AIOrbProps> = ({
     pointsGeo.setAttribute("alpha", new THREE.BufferAttribute(opacities, 1));
 
     const pointsMat = new THREE.PointsMaterial({
-      color: 0x00ffaa,
+      color: 0x20d9ff,
       size: 0.035,
       transparent: true,
       opacity: 0.65,
@@ -225,7 +225,7 @@ export const AIOrb: React.FC<AIOrbProps> = ({
       // Orbiting satellite/node
       const beaconGeo = new THREE.SphereGeometry(0.045, lowPowerDevice ? 8 : 12, lowPowerDevice ? 8 : 12);
       const beaconMat = new THREE.MeshBasicMaterial({
-        color: 0x00ffaa,
+        color: 0x20d9ff,
         transparent: true,
         opacity: 0.9,
       });
@@ -236,14 +236,14 @@ export const AIOrb: React.FC<AIOrbProps> = ({
       return { ringGroup, beacon, radius };
     };
 
-    const orbit1 = createOrbitRing(2.45, 0.4, 0.35, 0x00d287);
-    const orbit2 = createOrbitRing(2.7, -0.55, -0.2, 0x00e5ff);
+    const orbit1 = createOrbitRing(2.45, 0.4, 0.35, 0x10b9dc);
+    const orbit2 = createOrbitRing(2.7, -0.55, -0.2, 0x67e8ff);
     globeGroup.add(orbitGroup);
 
     // 5. Scanning Plane / Ring for THINKING State
     const scanRingGeo = new THREE.RingGeometry(1.95, 2.05, lowPowerDevice ? 32 : 48);
     const scanRingMat = new THREE.MeshBasicMaterial({
-      color: 0x00ffaa,
+      color: 0x20d9ff,
       transparent: true,
       opacity: 0,
       side: THREE.DoubleSide,
@@ -274,7 +274,7 @@ export const AIOrb: React.FC<AIOrbProps> = ({
       `,
       uniforms: {
         uIntensity: { value: 0.45 },
-        uColor: { value: new THREE.Color(0x00d287) },
+        uColor: { value: new THREE.Color(0x10b9dc) },
       },
       transparent: true,
       blending: THREE.AdditiveBlending,
@@ -298,7 +298,7 @@ export const AIOrb: React.FC<AIOrbProps> = ({
     const dustGeo = new THREE.BufferGeometry();
     dustGeo.setAttribute("position", new THREE.BufferAttribute(dustPositions, 3));
     const dustMat = new THREE.PointsMaterial({
-      color: 0x00ffaa,
+      color: 0x20d9ff,
       size: 0.025,
       transparent: true,
       opacity: 0.35,
@@ -308,11 +308,11 @@ export const AIOrb: React.FC<AIOrbProps> = ({
     scene.add(dustMesh);
 
     // Subtle Lighting
-    const keyLight = new THREE.DirectionalLight(0x00ffaa, 1.2);
+    const keyLight = new THREE.DirectionalLight(0x20d9ff, 1.2);
     keyLight.position.set(4, 3, 5);
     scene.add(keyLight);
 
-    const rimLight = new THREE.DirectionalLight(0x00d287, 0.6);
+    const rimLight = new THREE.DirectionalLight(0x10b9dc, 0.6);
     rimLight.position.set(-4, -2, -3);
     scene.add(rimLight);
 
@@ -539,7 +539,7 @@ export const AIOrb: React.FC<AIOrbProps> = ({
       aria-label="JARVIS Core Digital Globe"
     >
       {/* Subtle outer radial gradient glow behind the globe */}
-      <div className="absolute inset-0 pointer-events-none rounded-full bg-[radial-gradient(circle_at_center,rgba(0,255,170,0.06)_0%,rgba(0,210,135,0.02)_45%,transparent_70%)]" />
+      <div className="absolute inset-0 pointer-events-none rounded-full bg-[radial-gradient(circle_at_center,rgba(32,217,255,0.06)_0%,rgba(16,185,220,0.02)_45%,transparent_70%)]" />
     </div>
   );
 };
