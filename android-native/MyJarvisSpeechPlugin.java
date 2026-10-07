@@ -3,6 +3,7 @@ package com.jarvis.ai;
 import com.jarvis.ai.audio.JarvisAudioEngine;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
@@ -236,6 +237,7 @@ public class MyJarvisSpeechPlugin extends Plugin {
     }
 
     @PluginMethod
+    @SuppressLint("MissingPermission")
     public void startPcmCapture(PluginCall call) {
         main.post(() -> {
             try {
