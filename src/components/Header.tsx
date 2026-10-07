@@ -3,7 +3,7 @@
  * Displays branding, compact connection status, memory access and controls.
  */
 import React from "react";
-import { SlidersHorizontal, Compass, Monitor, X, Loader2, ExternalLink, Brain } from "lucide-react";
+import { SlidersHorizontal, Compass, Monitor, X, Loader2, ExternalLink, Brain, MessageSquare } from "lucide-react";
 import { ConnectionStatus } from "../types/assistant";
 import { ScreenShareStatus } from "../types/screenShare";
 
@@ -59,6 +59,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button type="button" onClick={onOpenBrowser} aria-label="Open JARVIS browser" className="w-10 h-10 rounded-xl flex items-center justify-center text-neutral-400 hover:text-cyan-300 hover:bg-white/[0.05]"><Compass className="w-[18px] h-[18px]"/></button>
         )}
         {onOpenMemory && <button onClick={onOpenMemory} aria-label="Memory Core" className="w-10 h-10 rounded-xl flex items-center justify-center text-neutral-400 hover:text-cyan-300 hover:bg-white/[0.05]"><Brain className="w-[18px] h-[18px]"/></button>}
+        {onOpenChats && <button onClick={onOpenChats} aria-label="Conversations" className="w-10 h-10 rounded-xl flex items-center justify-center text-neutral-400 hover:text-cyan-300 hover:bg-cyan-300/[0.04]"><MessageSquare className="w-[18px] h-[18px]"/></button>}
         {onStartScreenShare && !isSharing && !isRequesting && !isIframeRestricted && <button type="button" onClick={onStartScreenShare} aria-label="Screen share" className="w-10 h-10 rounded-xl flex items-center justify-center text-neutral-400 hover:text-cyan-300 hover:bg-white/[0.05]"><Monitor className="w-[18px] h-[18px]"/></button>}
         <button onClick={onOpenSettings} aria-label="Settings" className="w-10 h-10 rounded-xl flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/[0.05]"><SlidersHorizontal className="w-[18px] h-[18px]"/></button>
       </div>
