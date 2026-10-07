@@ -22,58 +22,65 @@ export function setAndroidApiKey(key: string): void {
 export async function validateAndroidApiKey(key: string): Promise<void> {
   const value = key.trim();
   if (!value) throw new Error("Gemini API key is required.");
-
-  // Validate both runtime paths used by the APK:
-  // 1) the REST brain, and 2) Gemini Live voice setup.
-  const brainModel = CHAT_MODEL;
-  const brainUrl =
-    "https://generativelanguage.googleapis.com/v1beta/models/" +
-    encodeURIComponent(brainModel) +
-    ":generateContent";
-
-  try {
-    const brainRes = await fetch(brainUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": value,
-      },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: "Reply with OK." }] }],
-        generationConfig: {
-          thinkingConfig: { thinkingLevel: "minimal" },
-          maxOutputTokens: 16,
-        },
-      }),
-    });
-
-    const brainRaw = await brainRes.text();
-    let brainData: any = {};
-    try { brainData = brainRaw ? JSON.parse(brainRaw) : {}; } catch {}
-
-    if (!brainRes.ok) {
-      throw new Error(
-        brainData?.error?.message ||
-        `Gemini brain check failed (HTTP ${brainRes.status}).`
-      );
-    }
-
-    const brainText = brainData?.candidates?.[0]?.content?.parts
-      ?.map((part: any) => part?.text || "")
-      .join("")
-      .trim() || "";
-
-    if (!brainText) {
-      throw new Error(
-        `Gemini brain check returned no text (finishReason: ${brainData?.candidates?.[0]?.finishReason || "unknown"}).`
-      );
-    }
-  } catch (error) {
-    if (error instanceof TypeError) {
-      throw new Error("Could not reach Gemini. Check your internet connection and try again.");
-    }
-    throw error;
+  if (value.includes("\n") || value.includes("\r") || value.startsWith('"') || value.endsWith('"')) {
+    throw new Error("Gemini API key contains invalid quotes or line breaks. Paste the key exactly as shown in Google AI Studio.");
   }
+
+  const requestJson = async (url: string, init: RequestInit, label: string): Promise<any> => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 12000);
+    try {
+      const response = await fetch(url, { ...init, signal: controller.signal });
+      const raw = await response.text();
+      let data: any = {};
+      try { data = raw ? JSON.parse(raw) : {}; } catch {}
+
+      if (!response.ok) {
+        const providerError = data?.error;
+        const reason =
+          providerError?.details?.find((detail: any) => detail?.reason)?.reason ||
+          providerError?.status ||
+          "";
+        const message =
+          providerError?.message ||
+          raw?.slice(0, 700) ||
+          `HTTP ${response.status}`;
+
+        const suffix = reason ? ` [${reason}]` : "";
+        throw new Error(`${label} failed (HTTP ${response.status})${suffix}: ${message}`);
+      }
+
+      return data;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new Error(`${label} timed out after 12 seconds. Check your internet connection and try again.`);
+      }
+      if (error instanceof TypeError) {
+        throw new Error(
+          `${label} could not be reached from the Android network stack. Check that mobile/Wi-Fi internet is working and that Google Gemini API access is not blocked on this network.`
+        );
+      }
+      throw error;
+    } finally {
+      window.clearTimeout(timer);
+    }
+  };
+
+  // First use a simple GET. This avoids a browser/WebView CORS preflight and
+  // gives the setup screen a real provider error instead of the old generic
+  // "Could not reach Gemini" message.
+  await requestJson(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(CHAT_MODEL)}?key=${encodeURIComponent(value)}`,
+    { method: "GET" },
+    `Gemini ${CHAT_MODEL} access check`
+  );
+
+  // The persistent-memory classifier is a required Android runtime dependency.
+  await requestJson(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite?key=${encodeURIComponent(value)}`,
+    { method: "GET" },
+    "Gemini memory model access check"
+  );
 
   await new Promise<void>((resolve, reject) => {
     const model = "gemini-3.1-flash-live-preview";
@@ -84,6 +91,8 @@ export async function validateAndroidApiKey(key: string): Promise<void> {
 
     let settled = false;
     let socket: WebSocket | null = null;
+    let timer = 0;
+
     const finish = (error?: Error) => {
       if (settled) return;
       settled = true;
@@ -92,25 +101,40 @@ export async function validateAndroidApiKey(key: string): Promise<void> {
       error ? reject(error) : resolve();
     };
 
-    const timer = window.setTimeout(() => {
-      finish(new Error("Gemini Live model check timed out after 5s."));
-    }, 5000);
+    timer = window.setTimeout(() => {
+      finish(new Error(
+        "Gemini Live voice verification timed out after 12 seconds. The Gemini brain key is valid, but Live voice did not complete its setup handshake."
+      ));
+    }, 12000);
 
-    socket = new WebSocket(url);
+    try {
+      socket = new WebSocket(url);
+    } catch (error) {
+      finish(new Error(
+        `Gemini Live could not open a WebSocket: ${error instanceof Error ? error.message : String(error)}`
+      ));
+      return;
+    }
 
     socket.onopen = () => {
       socket?.send(JSON.stringify({
         setup: {
           model: `models/${model}`,
-          generationConfig: { responseModalities: ["AUDIO"] },
-          sessionResumption: {},
+          generationConfig: {
+            responseModalities: ["AUDIO"],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName: "Enceladus" },
+              },
+            },
+          },
         },
       }));
     };
 
     socket.onmessage = async (event) => {
       try {
-        let raw = event.data;
+        let raw: any = event.data;
         if (raw instanceof Blob) raw = await raw.text();
         if (raw instanceof ArrayBuffer) raw = new TextDecoder().decode(raw);
         const msg = JSON.parse(String(raw));
@@ -122,30 +146,35 @@ export async function validateAndroidApiKey(key: string): Promise<void> {
 
         if (msg.error) {
           const error = msg.error;
-          finish(new Error(
+          const message =
             typeof error === "string"
               ? error
-              : error?.message || error?.status || JSON.stringify(error)
-          ));
+              : error?.message || error?.status || JSON.stringify(error);
+          finish(new Error(`Gemini Live setup failed: ${message}`));
         }
-      } catch {
-        finish(new Error("Gemini Live returned an invalid setup response."));
+      } catch (error) {
+        finish(new Error(
+          `Gemini Live returned an invalid setup response: ${error instanceof Error ? error.message : String(error)}`
+        ));
       }
     };
 
     socket.onerror = () => {
-      finish(new Error("Gemini Live connection failed during verification."));
+      finish(new Error(
+        "Gemini Live WebSocket could not connect. The Gemini brain key was accepted, but Live voice is unreachable from this Android network."
+      ));
     };
 
     socket.onclose = (event) => {
       if (!settled) {
-        const detail = [event.code ? `code ${event.code}` : "", event.reason || ""]
-          .filter(Boolean)
-          .join(": ");
+        const detail = [
+          event.code ? `code ${event.code}` : "",
+          event.reason || "",
+        ].filter(Boolean).join(": ");
         finish(new Error(
           detail
-            ? `Gemini Live model check closed (${detail}).`
-            : "Gemini Live model check closed before setup completed."
+            ? `Gemini Live closed before setup completed (${detail}).`
+            : "Gemini Live closed before setup completed."
         ));
       }
     };
@@ -153,6 +182,7 @@ export async function validateAndroidApiKey(key: string): Promise<void> {
 
   setAndroidApiKey(value);
 }
+
 export async function generateAndroidReply(
   message: string,
   systemInstruction: string,
