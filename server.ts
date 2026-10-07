@@ -822,14 +822,17 @@ async function startServer() {
         return result;
       };
 
-      // Memory classification is intentionally pinned to Gemini 2.5 Flash-Lite.
-      // The caller cannot select a different model and there is no fallback to a chat model.
+      // Prefer Gemini 2.5 Flash-Lite for memory classification.
+      // Some newer API projects have restricted access to the 2.5 family, so
+      // use the current lightweight classifier only when the primary model is
+      // unavailable. This keeps memory classification isolated from the 3.5
+      // conversational brain.
       let result: any;
       try {
         result = await runClassifier(MEMORY_MODEL);
       } catch (primaryErr) {
-        console.error("Memory classifier failed:", primaryErr);
-        throw primaryErr;
+        console.warn("Memory 2.5 Flash-Lite unavailable; using 3.5 Flash-Lite classifier:", primaryErr);
+        result = await runClassifier("gemini-3.5-flash-lite");
       }
 
       res.json(result);
