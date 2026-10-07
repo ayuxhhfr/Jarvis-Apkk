@@ -80,3 +80,18 @@
   animation: messageIn 250ms ease-out forwards;
 }
 
+@keyframes jarvisCursorBlink {
+  0%, 42% { opacity: 1; }
+  43%, 100% { opacity: 0.18; }
+}
+
+.jarvis-response-cursor {
+  animation: jarvisCursorBlink 620ms steps(1, end) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jarvis-response-cursor {
+    animation: none;
+    opacity: 0.55;
+  }
+}
