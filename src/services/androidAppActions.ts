@@ -91,18 +91,18 @@ export async function openAndroidApp(query: string): Promise<InstalledAndroidApp
   const app = findBestApp(query, apps);
   if (!app) throw new Error(`I couldn't find an installed app named "${query}".`);
 
-  await AndroidApp.openApp({ packageName: app.packageName, query: app.name });
+  await nativeBridge.openApp({ packageName: app.packageName, query: app.name });
   return app;
 }
 
 export async function openAndroidAppPackage(packageName: string): Promise<void> {
   if (!isAndroidNative()) throw new Error("Native Android app launcher is unavailable.");
-  await AndroidApp.openApp({ packageName });
+  await nativeBridge.openApp({ packageName });
 }
 
 export async function resumeAndroidWakeWord(wakeWord = "jarvis"): Promise<void> {
   if (!isAndroidNative()) return;
-  await AndroidApp.startWakeWord({ wakeWord });
+  await nativeBridge.startWakeWord({ wakeWord });
 }
 
 export async function startAndroidWakeWord(
@@ -112,17 +112,17 @@ export async function startAndroidWakeWord(
 ): Promise<() => void> {
   if (!isAndroidNative()) return () => {};
 
-  const wakeListener = await AndroidApp.addListener("wake", event => {
+  const wakeListener = await nativeBridge.addListener("wake", (event: any) => {
     onWake(String(event?.text || "").trim());
   });
-  const errorListener = await AndroidApp.addListener("wakeError", event => {
+  const errorListener = await nativeBridge.addListener("wakeError", (event: any) => {
     onError?.(String(event?.message || "Wake word microphone error"));
   });
 
-  await AndroidApp.startWakeWord({ wakeWord });
+  await nativeBridge.startWakeWord({ wakeWord });
 
   return () => {
-    void AndroidApp.stopWakeWord().catch(() => {});
+    void nativeBridge.stopWakeWord().catch(() => {});
     void wakeListener.remove().catch(() => {});
     void errorListener.remove().catch(() => {});
   };
@@ -153,6 +153,6 @@ export async function tryOpenAndroidAppCommand(text: string): Promise<InstalledA
   const app = findBestApp(target, apps);
   if (!app) return null;
 
-  await AndroidApp.openApp({ packageName: app.packageName, query: app.name });
+  await nativeBridge.openApp({ packageName: app.packageName, query: app.name });
   return app;
 }
