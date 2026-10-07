@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Brain, X, Trash2, Plus, UserRound, Heart, Target, Briefcase, UsersRound, Flame, Activity } from "lucide-react";
+import { Brain, X, Trash2, UserRound, Heart, Target, Briefcase, UsersRound, Flame, Activity } from "lucide-react";
 import { memoryService } from "../services/memoryService";
 import { MemoryItem } from "../types/memory";
 interface MemoryDashboardProps { isOpen: boolean; onClose: () => void; }
