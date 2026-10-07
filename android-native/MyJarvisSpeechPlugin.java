@@ -4,6 +4,7 @@ import com.jarvis.ai.audio.JarvisAudioEngine;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
+import androidx.annotation.RequiresApi;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
@@ -270,7 +271,7 @@ public class MyJarvisSpeechPlugin extends Plugin {
                                 .build())
                         .setBufferSizeInBytes(bufferBytes);
 
-                if (android.os.Build.VERSION.SDK_INT >= 29) {
+                if (android.os.Build.VERSION.SDK_INT >= 30) {
                     try { builder.setPrivacySensitive(true); } catch (Throwable ignored) {}
                 }
 
