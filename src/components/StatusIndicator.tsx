@@ -37,14 +37,14 @@ export const StatusIndicator: React.FC<StatusIndicatorProps> = ({
             key={key}
             className={`flex items-center gap-2.5 transition-all duration-300 ${
               isActive
-                ? "text-[#00ffaa] font-medium opacity-100 translate-x-1"
+                ? "text-[#20d9ff] font-medium opacity-100 translate-x-1"
                 : "text-neutral-500 opacity-40 hover:opacity-60"
             }`}
           >
             <span
               className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${
                 isActive
-                  ? "bg-[#00ffaa] shadow-[0_0_8px_#00ffaa] scale-125"
+                  ? "bg-[#20d9ff] shadow-[0_0_8px_#20d9ff] scale-125"
                   : "bg-neutral-600"
               }`}
             />
