@@ -140,8 +140,7 @@ If nothing durable exists, return {"shouldRemember":false,"memories":[],"reason"
     // The classifier must never depend on the (often overloaded) chat/manager model.
     // Chain: lite model -> stable 2.5 Flash. Each request has a hard timeout so a busy
     // model cannot hang memory saving.
-    const CLASSIFIER_TIMEOUT_MS = 8000;
-    const selectedBackgroundModel = MEMORY_MODEL;
+    const CLASSIFIER_TIMEOUT_MS = 20000;
 
     const fetchWithTimeout = async (url: string, init: RequestInit): Promise<Response> => {
       const controller = new AbortController();
@@ -154,7 +153,9 @@ If nothing durable exists, return {"shouldRemember":false,"memories":[],"reason"
       const key = getAndroidApiKey().trim();
       if (!key) throw new Error("no Android Gemini key");
       let lastErr: any;
-      const model = MEMORY_MODEL;
+      const models = [MEMORY_MODEL, "gemini-3.5-flash-lite"];
+      let lastModelError: any;
+      for (const model of models) {
       for (let attempt = 0; attempt < 2; attempt++) {
           try {
             const res = await fetchWithTimeout("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent", {
@@ -182,7 +183,9 @@ If nothing durable exists, return {"shouldRemember":false,"memories":[],"reason"
             if (attempt === 0) await new Promise((r) => setTimeout(r, 700));
           }
       }
-      throw lastErr || new Error("memory classifier unavailable");
+      lastModelError = lastErr || new Error("memory classifier unavailable");
+      }
+      throw lastModelError || new Error("memory classifier unavailable");
     };
 
     const runServer = async (): Promise<MemoryClassification> => {
