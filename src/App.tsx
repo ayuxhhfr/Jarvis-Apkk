@@ -22,7 +22,7 @@ import { useBrowser } from "./hooks/useBrowser";
 import { useAssistant } from "./hooks/useAssistant";
 import { getAndroidApiKey, isAndroidApp, speakAndroid, listenAndroidOnce } from "./services/androidRuntime";
 import { startAndroidWakeWord, resumeAndroidWakeWord } from "./services/androidAppActions";
-import { AlertCircle, X } from "lucide-react";
+import { AlertCircle, X, ArrowLeft } from "lucide-react";
 import { ChatSidebar, ChatSession } from "./components/ChatSidebar";
 
 export default function App() {
@@ -58,6 +58,7 @@ export default function App() {
   const wakeCleanupRef = useRef<(() => void) | null>(null);
   const wakeCommandListeningRef = useRef(false);
   const [isChatsOpen, setIsChatsOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [activeChatId, setActiveChatId] = useState(() => sessionService.getMetadata().currentSessionId);
 
   const toggleWakeWord = async () => {
@@ -413,12 +414,36 @@ export default function App() {
 
       {isMemoryOpen && <MemoryDashboard isOpen={isMemoryOpen} onClose={() => setIsMemoryOpen(false)} />}
 
+      {isHistoryOpen && (
+        <div className="fixed inset-0 z-[75] bg-[#03070b] text-[#e7e8f0] overflow-hidden">
+          <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_50%_0%,rgba(32,217,255,0.07),transparent_42%)]" />
+          <div className="relative h-full flex flex-col" style={{paddingTop:"max(env(safe-area-inset-top,0px),24px)",paddingBottom:"max(env(safe-area-inset-bottom,0px),8px)"}}>
+            <header className="shrink-0 flex items-center gap-3 px-5 pb-4 border-b border-white/[0.07]">
+              <button onClick={()=>setIsHistoryOpen(false)} aria-label="Back to JARVIS" className="w-11 h-11 rounded-xl border border-white/[0.08] bg-white/[0.025] flex items-center justify-center text-neutral-300 hover:text-cyan-300">
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <div>
+                <div className="text-[17px] font-semibold tracking-[0.12em] text-white uppercase">Conversation</div>
+                <div className="text-[9px] font-mono tracking-[0.25em] text-neutral-600 uppercase">Full chat history</div>
+              </div>
+            </header>
+            <main className="flex-1 min-h-0">
+              <Chat messages={messages} mode="history" />
+            </main>
+            <footer className="shrink-0 border-t border-white/[0.07] bg-[#05070b]/90 pt-2">
+              <InputBar onSendMessage={sendTextMessage} state={state} />
+            </footer>
+          </div>
+        </div>
+      )}
+
       {isChatsOpen && (
         <ChatSidebar
           messages={messages}
           activeId={activeChatId}
           onClose={() => setIsChatsOpen(false)}
           onNew={() => {
+            setIsHistoryOpen(false);
             clearMessages();
             setActiveChatId("chat_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7));
             setIsChatsOpen(false);
@@ -427,6 +452,7 @@ export default function App() {
             setActiveChatId(session.id);
             loadConversation(session.messages);
             setIsChatsOpen(false);
+            setIsHistoryOpen(true);
           }}
         />
       )}
