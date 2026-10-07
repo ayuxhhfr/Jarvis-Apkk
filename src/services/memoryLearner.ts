@@ -70,24 +70,32 @@ class MemoryLearner {
     const clean = (text || "").trim();
     if (clean.length < 3) return;
     if (!memoryService.isEnabled()) return;
-    // Explicit remember/forget commands are handled deterministically elsewhere.
+
+    // Explicit remember/forget commands are deterministic and are handled by
+    // the explicit command path. Implicit learning has exactly one authority:
+    // Gemini 2.5 Flash-Lite, after the caller has provided a complete utterance.
     if (memoryService.parseMemoryIntent(clean)) return;
 
-    let quickSaved = 0;
-    for (const fact of memoryService.extractQuickFacts(clean)) {
-      try {
-        const saved = await memoryService.saveMemory(fact.content, fact.category, fact.importance, source);
-        if (saved) quickSaved++;
-      } catch (err) {
-        console.warn("[MemoryLearner] Instant save failed:", err);
-      }
-    }
+    try {
+      const existing = (await memoryService.getMemories({ activeOnly: true }))
+        .slice(0, 40)
+        .map((m) => m.content);
+      const decision = await geminiText.classifyMemoryCandidate(clean, existing);
 
-    // Give the authoritative chat request a head start. Memory classification is
-    // intentionally lower priority and must never compete with the first response token.
-    window.setTimeout(() => {
-      void this.learnWithAI(clean, source, quickSaved);
-    }, 1200);
+      if (decision.failed) {
+        this.enqueue(clean, source);
+        return;
+      }
+
+      if (decision.shouldRemember) {
+        await this.saveAll(decision.memories, source);
+      }
+
+      void this.drain();
+    } catch (err) {
+      console.warn("[MemoryLearner] AI learning error:", err);
+      this.enqueue(clean, source);
+    }
   }
 
   private async learnWithAI(text: string, source: LearnSource, quickSaved: number): Promise<void> {
@@ -95,7 +103,7 @@ class MemoryLearner {
       const existing = (await memoryService.getMemories({ activeOnly: true }))
         .slice(0, 40)
         .map((m) => m.content);
-      const decision = await geminiText.classifyMemoryCandidate(text, existing, this.getBackgroundModel());
+      const decision = await geminiText.classifyMemoryCandidate(text, existing);
 
       if (decision.failed) {
         // A short, fully handled identity sentence does not need another attempt.
@@ -153,7 +161,7 @@ class MemoryLearner {
         const existing = (await memoryService.getMemories({ activeOnly: true }))
           .slice(0, 40)
           .map((m) => m.content);
-        const decision = await geminiText.classifyMemoryCandidate(item.text, existing, this.getBackgroundModel());
+        const decision = await geminiText.classifyMemoryCandidate(item.text, existing);
 
         if (decision.failed) {
           item.tries += 1;

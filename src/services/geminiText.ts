@@ -99,7 +99,7 @@ export class GeminiTextService {
     return fullText;
   }
 
-  public async classifyMemoryCandidate(message: string, existingMemories: string[] = [], backgroundModel: string = "auto"): Promise<MemoryClassification> {
+  public async classifyMemoryCandidate(message: string, existingMemories: string[] = []): Promise<MemoryClassification> {
     const prompt = message.trim();
     if (!prompt) return { shouldRemember: false, memories: [], reason: "empty" };
 
@@ -141,8 +141,7 @@ If nothing durable exists, return {"shouldRemember":false,"memories":[],"reason"
     // Chain: lite model -> stable 2.5 Flash. Each request has a hard timeout so a busy
     // model cannot hang memory saving.
     const CLASSIFIER_TIMEOUT_MS = 8000;
-    const selectedBackgroundModel = backgroundModel && backgroundModel !== "auto" ? backgroundModel : MEMORY_MODEL;
-    const ANDROID_CHAIN = [selectedBackgroundModel, "gemini-3.5-flash-lite"];
+    const selectedBackgroundModel = MEMORY_MODEL;
 
     const fetchWithTimeout = async (url: string, init: RequestInit): Promise<Response> => {
       const controller = new AbortController();
@@ -155,8 +154,8 @@ If nothing durable exists, return {"shouldRemember":false,"memories":[],"reason"
       const key = getAndroidApiKey().trim();
       if (!key) throw new Error("no Android Gemini key");
       let lastErr: any;
-      for (const model of ANDROID_CHAIN) {
-        for (let attempt = 0; attempt < 2; attempt++) {
+      const model = MEMORY_MODEL;
+      for (let attempt = 0; attempt < 2; attempt++) {
           try {
             const res = await fetchWithTimeout("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent", {
               method: "POST",
@@ -179,11 +178,9 @@ If nothing durable exists, return {"shouldRemember":false,"memories":[],"reason"
             lastErr = err;
             const status = Number(err?.status || 0);
             const transient = err?.name === "AbortError" || status === 429 || status === 503 || status === 500;
-            // Non-transient error (bad key, bad request, bad JSON): go to next model immediately.
             if (!transient) break;
             if (attempt === 0) await new Promise((r) => setTimeout(r, 700));
           }
-        }
       }
       throw lastErr || new Error("memory classifier unavailable");
     };
@@ -191,7 +188,7 @@ If nothing durable exists, return {"shouldRemember":false,"memories":[],"reason"
     const runServer = async (): Promise<MemoryClassification> => {
       const res = await fetchWithTimeout("/api/gemini/memory-classify", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userPrompt, systemInstruction: system, model: selectedBackgroundModel }),
+        body: JSON.stringify({ message: userPrompt, systemInstruction: system, model: MEMORY_MODEL }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));

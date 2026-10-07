@@ -1,6 +1,9 @@
 package com.jarvis.ai;
 
+import com.jarvis.ai.audio.JarvisAudioEngine;
+
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
@@ -53,6 +56,7 @@ public class MyJarvisSpeechPlugin extends Plugin {
     private Thread pcmThread;
     private volatile boolean pcmCaptureActive;
     private String wakeWord = "jarvis";
+    private final JarvisAudioEngine audioEngine = new JarvisAudioEngine();
 
     @Override
     public void load() {
@@ -233,6 +237,7 @@ public class MyJarvisSpeechPlugin extends Plugin {
     }
 
     @PluginMethod
+    @SuppressLint("MissingPermission")
     public void startPcmCapture(PluginCall call) {
         main.post(() -> {
             try {
@@ -265,7 +270,7 @@ public class MyJarvisSpeechPlugin extends Plugin {
                                 .build())
                         .setBufferSizeInBytes(bufferBytes);
 
-                if (android.os.Build.VERSION.SDK_INT >= 29) {
+                if (android.os.Build.VERSION.SDK_INT >= 30) {
                     try { builder.setPrivacySensitive(true); } catch (Throwable ignored) {}
                 }
 
@@ -277,14 +282,14 @@ public class MyJarvisSpeechPlugin extends Plugin {
                     // Fall back to VOICE_RECOGNITION, which still enables the
                     // platform's speech-oriented processing path where available.
                     builder = new AudioRecord.Builder()
-                            .setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+                            .setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
                             .setAudioFormat(new AudioFormat.Builder()
                                     .setSampleRate(sampleRate)
                                     .setChannelMask(channelMask)
                                     .setEncoding(encoding)
                                     .build())
                             .setBufferSizeInBytes(bufferBytes);
-                    if (android.os.Build.VERSION.SDK_INT >= 29) {
+                    if (android.os.Build.VERSION.SDK_INT >= 30) {
                         try { builder.setPrivacySensitive(true); } catch (Throwable ignored) {}
                     }
                     record = builder.build();
@@ -431,6 +436,32 @@ public class MyJarvisSpeechPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void playPcm(PluginCall call) {
+        String data = call.getString("data", "");
+        int sampleRate = call.getInt("sampleRate", 24000);
+        if (data == null || data.isEmpty()) {
+            call.resolve();
+            return;
+        }
+        main.post(() -> {
+            try {
+                audioEngine.enqueueBase64Pcm(data, sampleRate);
+                call.resolve();
+            } catch (Throwable e) {
+                call.reject(e.getMessage() == null ? "Unable to play native PCM" : e.getMessage());
+            }
+        });
+    }
+
+    @PluginMethod
+    public void stopPlayback(PluginCall call) {
+        main.post(() -> {
+            audioEngine.stop();
+            call.resolve();
+        });
+    }
+
+    @PluginMethod
     public void startListening(PluginCall call) {
         main.post(() -> {
             if (ContextCompat.checkSelfPermission(getContext(), Manifest.permission.RECORD_AUDIO)
@@ -574,6 +605,7 @@ public class MyJarvisSpeechPlugin extends Plugin {
         main.post(() -> {
             stopRecognizer();
             stopPcmCaptureInternal();
+            audioEngine.stop();
             if (tts != null) { try { tts.stop(); tts.shutdown(); } catch (Throwable ignored) {} tts = null; }
         });
         super.handleOnDestroy();
