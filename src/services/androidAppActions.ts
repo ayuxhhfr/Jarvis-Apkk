@@ -1,14 +1,6 @@
-import { Capacitor, registerPlugin } from "@capacitor/core";
+import { Capacitor } from "@capacitor/core";
 
-interface AndroidAppPlugin {
-  openApp(options: { query?: string; packageName?: string }): Promise<{ opened: boolean; packageName?: string }>;
-  listApps(): Promise<{ apps: Array<{ name: string; packageName: string }> }>;
-  startWakeWord(options?: { wakeWord?: string }): Promise<void>;
-  stopWakeWord(): Promise<void>;
-  addListener(eventName: "wake" | "wakeError", listener: (event: any) => void): Promise<{ remove: () => Promise<void> }>;
-}
-
-const AndroidApp = registerPlugin<AndroidAppPlugin>("MyJarvisSpeech");
+import { nativeBridge } from "./nativeBridge";
 
 export interface InstalledAndroidApp {
   name: string;
@@ -55,7 +47,7 @@ export async function getInstalledAndroidApps(force = false): Promise<InstalledA
   if (cachedApps && !force) return cachedApps;
   if (cachePromise && !force) return cachePromise;
 
-  cachePromise = AndroidApp.listApps()
+  cachePromise = nativeBridge.listApps()
     .then(result => {
       cachedApps = Array.isArray(result?.apps) ? result.apps : [];
       return cachedApps;
