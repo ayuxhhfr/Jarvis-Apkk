@@ -1,10 +1,5 @@
-import { Capacitor, registerPlugin } from "@capacitor/core";
-
-interface MyJarvisSpeechPlugin {
-  requestMicrophonePermission(): Promise<{ granted: boolean }>;
-}
-
-const NativeSpeech = registerPlugin<MyJarvisSpeechPlugin>("MyJarvisSpeech");
+import { Capacitor } from "@capacitor/core";
+import { nativeBridge } from "./nativeBridge";
 
 export async function requestAndroidMicrophonePermission(): Promise<boolean> {
   if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "android") {
@@ -12,7 +7,8 @@ export async function requestAndroidMicrophonePermission(): Promise<boolean> {
   }
 
   try {
-    const result = await NativeSpeech.requestMicrophonePermission();
+    const granted = await nativeBridge.requestMicrophonePermission();
+    const result = { granted };
     if (result?.granted === true) return true;
   } catch (error) {
     console.warn("[MicrophonePermission] Native permission request failed; trying WebView permission:", error);
