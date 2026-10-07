@@ -15,7 +15,7 @@
 
   body {
     font-family: var(--font-sans);
-    background-color: #08090a;
+    background-color: #05070b;
     color: #e6e8eb;
     overflow-x: hidden;
     margin: 0;
@@ -57,12 +57,12 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(120, 220, 255, 0.12);
   border-radius: 2px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 255, 170, 0.3);
+  background: rgba(32, 217, 255, 0.3);
 }
 
 @keyframes messageIn {
