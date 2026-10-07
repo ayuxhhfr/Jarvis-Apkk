@@ -29,7 +29,7 @@ export const Header: React.FC<HeaderProps> = ({
   const isIframeRestricted = screenShareStatus?.isIframeRestricted;
   const statusInfo = (() => {
     switch (status) {
-      case "online": return { label: "Online", dot: "bg-[#00ffaa] shadow-[0_0_8px_#00ffaa]", text: "text-[#00ffaa]" };
+      case "online": return { label: "Online", dot: "bg-[#20d9ff] shadow-[0_0_8px_#20d9ff]", text: "text-[#20d9ff]" };
       case "connecting": return { label: "Connecting...", dot: "bg-amber-400 animate-pulse", text: "text-amber-400" };
       case "error": return { label: "Attention Required", dot: "bg-rose-500", text: "text-rose-400" };
       default: return { label: "Offline", dot: "bg-neutral-500", text: "text-neutral-400" };
