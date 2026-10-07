@@ -333,9 +333,7 @@ export default function App() {
               {/* Globe Container */}
               <div className={`relative transition-all duration-300 flex items-center justify-center ${
                 messages.length > 0
-                  ? isChatExpanded
-                    ? "w-28 h-28 xs:w-32 xs:h-32 sm:w-40 sm:h-40 md:w-52 md:h-52 lg:w-64 lg:h-64"
-                    : "w-40 h-40 xs:w-44 xs:h-44 sm:w-56 sm:h-56 md:w-72 md:h-72 lg:w-80 lg:h-80"
+                  ? "w-40 h-40 xs:w-44 xs:h-44 sm:w-56 sm:h-56 md:w-72 md:h-72 lg:w-80 lg:h-80"
                   : "w-52 h-52 xs:w-60 xs:h-60 sm:w-72 sm:h-72 md:w-80 md:h-80 lg:w-96 lg:h-96"
               }`}>
                 <AIOrb
