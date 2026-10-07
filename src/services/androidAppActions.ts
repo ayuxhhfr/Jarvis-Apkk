@@ -119,7 +119,7 @@ export async function startAndroidWakeWord(
     onError?.(String(event?.message || "Wake word microphone error"));
   });
 
-  await nativeBridge.startWakeWord({ wakeWord });
+  await nativeBridge.startWakeWord(wakeWord);
 
   return () => {
     void nativeBridge.stopWakeWord().catch(() => {});
