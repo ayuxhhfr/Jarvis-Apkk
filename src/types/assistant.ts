@@ -26,6 +26,8 @@ export interface AssistantSettings {
   brainModel?: string;
   /** Background model routing preference. Auto keeps memory/background tasks on their dedicated model. */
   backgroundModel?: string;
+  /** Whether Android background voice mode is enabled. */
+  backgroundVoiceMode?: boolean;
 }
 
 export interface AudioVisualizerData {
