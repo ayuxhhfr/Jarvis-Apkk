@@ -22,7 +22,7 @@ import { useBrowser } from "./hooks/useBrowser";
 import { useAssistant } from "./hooks/useAssistant";
 import { getAndroidApiKey, isAndroidApp, speakAndroid, listenAndroidOnce } from "./services/androidRuntime";
 import { startAndroidWakeWord, resumeAndroidWakeWord } from "./services/androidAppActions";
-import { AlertCircle, X, ChevronDown, ChevronUp } from "lucide-react";
+import { AlertCircle, X } from "lucide-react";
 import { ChatSidebar, ChatSession } from "./components/ChatSidebar";
 
 export default function App() {
@@ -59,7 +59,6 @@ export default function App() {
   const wakeCommandListeningRef = useRef(false);
   const [isChatsOpen, setIsChatsOpen] = useState(false);
   const [activeChatId, setActiveChatId] = useState(() => sessionService.getMetadata().currentSessionId);
-  const [isChatExpanded, setIsChatExpanded] = useState(false);
 
   const toggleWakeWord = async () => {
     if (!isAndroidApp()) {
@@ -393,42 +392,13 @@ export default function App() {
               </div>
             </div>
 
-            {/* Live Conversation / Transcript Stream (Responsive Drawer) */}
-            <div
-              className={`absolute left-0 right-0 bottom-1 sm:bottom-2 w-full max-w-2xl mx-auto transition-all duration-300 flex flex-col z-20 min-h-0 ${
-                messages.length > 0
-                  ? isChatExpanded
-                    ? "h-[38%] min-h-[180px]"
-                    : "h-40 sm:h-48"
-                  : "h-0 opacity-0 pointer-events-none"
-              }`}
-            >
-              {messages.length > 0 && (
-                <div className="flex items-center justify-between px-3 py-1.5 text-[10px] font-mono text-neutral-500 border-b border-white/[0.04] bg-[#0c0e11]/60 rounded-t-xl">
-                  <span>CHAT HISTORY ({messages.length})</span>
-                  <button
-                    onClick={() => setIsChatExpanded(!isChatExpanded)}
-                    className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer"
-                  >
-                    {isChatExpanded ? (
-                      <>
-                        <span>Minimize</span>
-                        <ChevronDown className="w-3 h-3" />
-                      </>
-                    ) : (
-                      <>
-                        <span>Expand</span>
-                        <ChevronUp className="w-3 h-3" />
-                      </>
-                    )}
-                  </button>
-                </div>
-              )}
-
-              <div className="flex-1 min-h-0 bg-[#0c0e11]/80 backdrop-blur-md rounded-xl border border-white/[0.06] overflow-hidden">
-                <Chat messages={messages} onClear={clearMessages} />
+            {/* One-message live response surface. Older messages live in Conversations. */}
+            {messages.length > 0 && (
+              <div className="absolute left-1/2 -translate-x-1/2 bottom-5 sm:bottom-8 w-[calc(100%-28px)] max-w-2xl z-20 pointer-events-auto">
+                <Chat messages={messages} />
               </div>
-            </div>
+            )}
+
           </main>
 
           {/* Bottom Text Input Bar */}
