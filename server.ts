@@ -794,7 +794,7 @@ async function startServer() {
       return;
     }
 
-    const { message, systemInstruction, model } = req.body;
+    const { message, systemInstruction } = req.body;
     if (!message) {
       res.status(400).json({ error: "Message is required" });
       return;
@@ -822,15 +822,14 @@ async function startServer() {
         return result;
       };
 
-      const allowedMemoryModels = new Set(["gemini-2.5-flash-lite", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]);
-      const selectedMemoryModel = typeof model === "string" && allowedMemoryModels.has(model) ? model : MEMORY_MODEL;
-
+      // Memory classification is intentionally pinned to Gemini 2.5 Flash-Lite.
+      // The caller cannot select a different model and there is no fallback to a chat model.
       let result: any;
       try {
-        result = await runClassifier(selectedMemoryModel);
+        result = await runClassifier(MEMORY_MODEL);
       } catch (primaryErr) {
-        console.warn("Primary memory classifier failed; falling back to Gemini 3.5 Flash-Lite:", primaryErr);
-        result = await runClassifier("gemini-3.5-flash-lite");
+        console.error("Memory classifier failed:", primaryErr);
+        throw primaryErr;
       }
 
       res.json(result);
