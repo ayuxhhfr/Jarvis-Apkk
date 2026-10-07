@@ -1,6 +1,7 @@
 name: JARVIS Android Hybrid Build
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - feature/native-kotlin-hybrid-jarvis
@@ -39,6 +40,15 @@ jobs:
 
       - name: Install dependencies
         run: npm install --legacy-peer-deps
+
+      - name: Static architecture verification
+        run: |
+          grep -R "gemini-3.1-flash-live-preview" src/config src/services >/dev/null
+          grep -R "gemini-2.5-flash-lite" src server.ts >/dev/null
+          grep -R "jarvis_long_term_memories" src >/dev/null
+          test -f android-native/MyJarvisSpeechPlugin.java
+          test -f android-native/audio/JarvisAudioEngine.kt
+          test -f src/services/nativeBridge.ts
 
       - name: TypeScript check
         run: npm run lint
