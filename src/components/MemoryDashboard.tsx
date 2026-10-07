@@ -1,199 +1,21 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Brain, X, Trash2, Plus, ChevronRight } from "lucide-react";
+import { Brain, X, Trash2, Plus, UserRound, Heart, Target, Briefcase, UsersRound, Flame, Activity } from "lucide-react";
 import { memoryService } from "../services/memoryService";
 import { MemoryItem } from "../types/memory";
-
-interface MemoryDashboardProps {
-  isOpen: boolean;
-  onClose: () => void;
-}
-
-const categories = ["personal", "preference", "project", "instruction", "routine", "technical", "other"] as const;
-
-export const MemoryDashboard: React.FC<MemoryDashboardProps> = ({ isOpen, onClose }) => {
-  const [memories, setMemories] = useState<MemoryItem[]>([]);
-  const [activeCategory, setActiveCategory] = useState<string>("all");
-  const [isAdding, setIsAdding] = useState(false);
-  const [newText, setNewText] = useState("");
-  const [newCategory, setNewCategory] = useState<MemoryItem["category"]>("personal");
-  const [clearConfirming, setClearConfirming] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      setMemories(await memoryService.getMemories());
-    } catch {
-      setMemories([]);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    void load();
-    return memoryService.subscribe(() => { void load(); });
-  }, [isOpen, load]);
-
-  if (!isOpen) return null;
-
-  const filtered = activeCategory === "all"
-    ? memories
-    : memories.filter((m) => m.category === activeCategory);
-
-  const addMemory = async () => {
-    const text = newText.trim();
-    if (!text || saving) return;
-    setSaving(true);
-    try {
-      await memoryService.saveMemory(text, newCategory, 3, "manual");
-      setNewText("");
-      setIsAdding(false);
-      await load();
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const clearAll = async () => {
-    await memoryService.clearMemories();
-    setClearConfirming(false);
-    await load();
-  };
-
-  return (
-    <div className="fixed inset-0 z-[80] pointer-events-auto">
-      <button
-        aria-label="Close memory dashboard"
-        onClick={onClose}
-        className="absolute inset-0 bg-black/60 backdrop-blur-[3px]"
-      />
-
-      <aside
-        className="absolute right-0 top-0 h-full w-full sm:w-[min(92vw,460px)] bg-[#05080b]/[0.98] border-l border-white/[0.10] shadow-[-25px_0_70px_rgba(0,0,0,0.55)] flex flex-col"
-        style={{
-          paddingTop: "max(18px, env(safe-area-inset-top))",
-          paddingBottom: "max(12px, env(safe-area-inset-bottom))",
-        }}
-      >
-        <div className="px-5 py-4 border-b border-white/[0.07] flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl border border-[#00ffaa]/20 bg-[#00ffaa]/[0.06] flex items-center justify-center">
-              <Brain className="w-5 h-5 text-[#00ffaa]" />
-            </div>
-            <div>
-              <h2 className="text-sm font-semibold tracking-[0.14em] uppercase font-mono text-white">
-                Memory Core
-              </h2>
-              <p className="text-[10px] text-neutral-500 font-mono mt-0.5">
-                Persistent recollections · {memories.length}
-              </p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-2 rounded-xl text-neutral-400 hover:text-white hover:bg-white/[0.06]">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="px-5 py-3 border-b border-white/[0.06] flex items-center gap-2 overflow-x-auto no-scrollbar">
-          <button
-            onClick={() => setActiveCategory("all")}
-            className={`shrink-0 px-3 py-1.5 rounded-full border text-[10px] font-mono uppercase tracking-wider ${activeCategory === "all" ? "bg-white text-black border-white" : "bg-white/[0.03] border-white/[0.08] text-neutral-400"}`}
-          >All</button>
-          {categories.map((category) => (
-            <button
-              key={category}
-              onClick={() => setActiveCategory(category)}
-              className={`shrink-0 px-3 py-1.5 rounded-full border text-[10px] font-mono uppercase tracking-wider ${activeCategory === category ? "bg-[#00ffaa]/10 text-[#00ffaa] border-[#00ffaa]/30" : "bg-white/[0.03] border-white/[0.08] text-neutral-400"}`}
-            >{category}</button>
-          ))}
-        </div>
-
-        <div className="px-5 py-3 border-b border-white/[0.06] flex items-center justify-between">
-          <span className="text-[10px] text-neutral-500 font-mono">
-            JARVIS learns durable facts from conversations.
-          </span>
-          <button
-            onClick={() => setIsAdding((v) => !v)}
-            className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#00ffaa]/20 bg-[#00ffaa]/[0.05] text-[10px] font-mono text-[#00ffaa]"
-          >
-            <Plus className="w-3 h-3" /> ADD
-          </button>
-        </div>
-
-        {isAdding && (
-          <div className="px-5 py-4 border-b border-white/[0.07] bg-white/[0.02] space-y-3">
-            <select
-              value={newCategory}
-              onChange={(e) => setNewCategory(e.target.value as MemoryItem["category"])}
-              className="w-full rounded-xl bg-[#0b1015] border border-white/[0.08] px-3 py-2.5 text-xs text-white outline-none"
-            >
-              {categories.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <textarea
-              value={newText}
-              onChange={(e) => setNewText(e.target.value)}
-              placeholder="What should JARVIS remember?"
-              rows={3}
-              className="w-full resize-none rounded-xl bg-[#0b1015] border border-white/[0.08] px-3 py-2.5 text-xs text-white placeholder:text-neutral-600 outline-none focus:border-[#00ffaa]/40"
-            />
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setIsAdding(false)} className="px-3 py-2 rounded-lg text-xs text-neutral-400">Cancel</button>
-              <button disabled={!newText.trim() || saving} onClick={() => void addMemory()} className="px-3 py-2 rounded-lg bg-[#00ffaa] text-black text-xs font-semibold disabled:opacity-40">
-                {saving ? "Saving..." : "Save Memory"}
-              </button>
-            </div>
-          </div>
-        )}
-
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2.5">
-          {filtered.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-center text-neutral-600">
-              <Brain className="w-8 h-8 mb-3 opacity-30" />
-              <p className="text-xs font-mono">No memories in this category.</p>
-            </div>
-          ) : filtered.map((memory) => (
-            <div key={memory.id} className="group rounded-xl border border-white/[0.07] bg-white/[0.025] p-3.5">
-              <div className="flex items-start gap-3">
-                <ChevronRight className="w-3.5 h-3.5 mt-0.5 text-[#00ffaa]/50 shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs leading-5 text-neutral-200 break-words">{memory.content}</p>
-                  <div className="mt-2 flex items-center gap-2 text-[9px] font-mono text-neutral-600 uppercase">
-                    <span>{memory.category}</span>
-                    <span>·</span>
-                    <span>importance {memory.importance}</span>
-                  </div>
-                </div>
-                <button
-                  onClick={async () => { await memoryService.deleteMemory(memory.id); await load(); }}
-                  className="opacity-50 sm:opacity-0 group-hover:opacity-100 p-1.5 text-neutral-500 hover:text-rose-400 transition"
-                  aria-label="Delete memory"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="px-5 py-3 border-t border-white/[0.07]">
-          {!clearConfirming ? (
-            <button
-              onClick={() => setClearConfirming(true)}
-              disabled={!memories.length}
-              className="flex items-center gap-2 text-[10px] font-mono text-rose-400 disabled:opacity-30"
-            >
-              <Trash2 className="w-3 h-3" /> CLEAR ALL MEMORIES
-            </button>
-          ) : (
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-[10px] font-mono text-rose-300">Clear every saved memory?</span>
-              <div className="flex gap-2">
-                <button onClick={() => setClearConfirming(false)} className="px-2.5 py-1.5 rounded-lg bg-white/[0.05] text-[10px] text-neutral-300">Cancel</button>
-                <button onClick={() => void clearAll()} className="px-2.5 py-1.5 rounded-lg bg-rose-500/20 text-[10px] text-rose-300">Clear</button>
-              </div>
-            </div>
-          )}
-        </div>
-      </aside>
-    </div>
-  );
+interface MemoryDashboardProps { isOpen: boolean; onClose: () => void; }
+const categories = [{id:"all",label:"ALL MEMORIES"},{id:"personal",label:"IDENTITY"},{id:"preference",label:"PREFERENCES"},{id:"routine",label:"LIFE"},{id:"project",label:"ACTIVE"}] as const;
+export const MemoryDashboard: React.FC<MemoryDashboardProps> = ({isOpen,onClose}) => {
+ const [memories,setMemories]=useState<MemoryItem[]>([]); const [activeCategory,setActiveCategory]=useState<string>("all"); const [isAdding,setIsAdding]=useState(false); const [newText,setNewText]=useState(""); const [newCategory,setNewCategory]=useState<MemoryItem["category"]>("personal"); const [saving,setSaving]=useState(false);
+ const load=useCallback(async()=>{try{setMemories(await memoryService.getMemories())}catch{setMemories([])}},[]);
+ useEffect(()=>{if(!isOpen)return;void load();return memoryService.subscribe(()=>void load())},[isOpen,load]); if(!isOpen)return null;
+ const filtered=activeCategory==="all"?memories:memories.filter(m=>m.category===activeCategory);
+ const addMemory=async()=>{const text=newText.trim();if(!text||saving)return;setSaving(true);try{await memoryService.saveMemory(text,newCategory,3,"manual");setNewText("");setIsAdding(false);await load()}finally{setSaving(false)}}; const clearAll=async()=>{await memoryService.clearMemories();await load()};
+ return <div className="fixed inset-0 z-[80] bg-[#030307] text-[#e7e8f0] overflow-hidden"><div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_50%_0%,rgba(86,72,255,0.08),transparent_38%)]"/><div className="relative h-full flex flex-col" style={{paddingTop:"max(env(safe-area-inset-top,0px),24px)",paddingBottom:"max(env(safe-area-inset-bottom,0px),8px)"}}>
+ <header className="shrink-0 px-6 pb-5 border-b border-white/[0.07] flex items-start justify-between"><div className="flex items-start gap-4"><div className="w-12 h-12 rounded-[15px] border border-indigo-400/30 bg-gradient-to-br from-indigo-500/25 to-cyan-400/10 flex items-center justify-center"><Brain className="w-6 h-6 text-indigo-300"/></div><div><h2 className="text-[21px] font-semibold text-white">JARVIS Memory Core <span className="text-cyan-300">✦</span></h2><p className="mt-1 text-[11px] font-mono tracking-[0.18em] text-neutral-500 uppercase">Persistent Recollect Files ({memories.length})</p></div></div><button onClick={onClose} className="w-12 h-12 rounded-[15px] border border-white/[0.08] bg-white/[0.025] flex items-center justify-center text-neutral-400 hover:text-white"><X className="w-6 h-6"/></button></header>
+ <div className="shrink-0 px-6 py-4 border-b border-white/[0.07] flex items-center justify-between gap-3"><p className="text-xs font-mono text-neutral-400 leading-5">💡 JARVIS remembers durable details naturally as you chat.</p><button onClick={()=>setIsAdding(v=>!v)} className="shrink-0 px-4 py-2.5 rounded-full border border-cyan-400/30 bg-cyan-400/[0.06] text-[10px] font-mono tracking-wider text-cyan-300">＋ MANUAL SEED</button></div>
+ {isAdding&&<div className="shrink-0 px-6 py-5 border-b border-white/[0.07] bg-[#090910]"><p className="text-[11px] font-mono tracking-[0.18em] text-neutral-400 uppercase mb-4">Memory Archetype Category</p><div className="grid grid-cols-2 gap-2.5">{[["personal","Identity",UserRound],["preference","Preferences",Heart],["routine","Life",Target],["project","Active",Briefcase],["other","Relationships",UsersRound],["instruction","Milestones",Flame],["technical","Behaviors",Activity]].map(([id,label,Icon]:any)=><button key={id} onClick={()=>setNewCategory(id)} className={`flex items-center gap-3 px-3.5 py-3 rounded-xl border text-left text-xs ${newCategory===id?"border-cyan-400/70 bg-cyan-400/[0.08] text-cyan-300":"border-white/[0.07] bg-white/[0.025] text-neutral-400"}`}><Icon className="w-4 h-4"/>{label}</button>)}</div><label className="block mt-5 text-[11px] font-mono tracking-[0.16em] text-neutral-400 uppercase">Recollection Statement</label><textarea value={newText} onChange={e=>setNewText(e.target.value)} placeholder="e.g. The user's startup is called JARVIS, a personal AI assistant." rows={4} className="mt-2 w-full rounded-xl bg-black/30 border border-white/[0.08] p-4 text-sm text-white outline-none focus:border-cyan-400/50 resize-none"/><div className="mt-4 flex justify-end gap-2"><button onClick={()=>setIsAdding(false)} className="px-4 py-2 rounded-xl text-xs text-neutral-500">CANCEL</button><button disabled={!newText.trim()||saving} onClick={()=>void addMemory()} className="px-5 py-2 rounded-xl bg-cyan-500 text-black text-[10px] font-mono font-bold tracking-wider disabled:opacity-40">{saving?"COMMITTING…":"COMMIT MEMORY"}</button></div></div>}
+ <div className="shrink-0 px-6 py-4 border-b border-white/[0.07] overflow-x-auto no-scrollbar"><div className="flex gap-2 min-w-max">{categories.map(({id,label})=><button key={id} onClick={()=>setActiveCategory(id)} className={`px-4 py-2.5 rounded-full border text-[10px] font-mono tracking-wider ${activeCategory===id?"bg-white text-black border-white":"bg-white/[0.035] border-white/[0.07] text-neutral-400"}`}>{label}</button>)}</div></div>
+ <main className="flex-1 overflow-y-auto px-6 py-6">{filtered.length===0?<div className="h-full min-h-[420px] flex flex-col items-center justify-center text-center"><div className="w-24 h-24 rounded-full border border-dashed border-white/[0.12] flex items-center justify-center"><Brain className="w-10 h-10 text-neutral-700"/></div><h3 className="mt-7 text-lg font-semibold text-neutral-300">No memories recorded yet</h3><p className="mt-3 max-w-[390px] text-sm font-mono leading-6 text-neutral-600">Start talking with JARVIS. Its background consolidator analyzes complete transcript utterances and builds durable context naturally.</p></div>:<div className="max-w-2xl mx-auto space-y-3">{filtered.map(memory=><div key={memory.id} className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4"><div className="flex items-start gap-3"><Brain className="w-4 h-4 mt-1 text-cyan-300/70 shrink-0"/><div className="min-w-0 flex-1"><p className="text-sm leading-6 text-neutral-200 break-words">{memory.content}</p><div className="mt-3 flex gap-2 text-[9px] font-mono uppercase text-neutral-600"><span>{memory.category}</span><span>·</span><span>importance {memory.importance}</span></div></div><button onClick={async()=>{await memoryService.deleteMemory(memory.id);await load()}} className="p-2 text-neutral-600 hover:text-rose-400"><Trash2 className="w-4 h-4"/></button></div></div>)}</div>}</main>
+ <footer className="shrink-0 px-6 py-4 border-t border-white/[0.07] flex items-center justify-between"><span className="text-[9px] font-mono tracking-[0.18em] text-cyan-500/60">● MEM-SYNC STREAM ACTIVE</span><div className="flex items-center gap-3"><span className="text-[9px] font-mono tracking-[0.18em] text-neutral-600">DURABLE LOCAL JSON DB</span>{memories.length>0&&<button onClick={()=>void clearAll()} className="text-[9px] font-mono text-rose-500">CLEAR ALL</button>}</div></footer>
+ </div></div>;
 };
