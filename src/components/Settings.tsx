@@ -7,26 +7,16 @@
 import React, { useState, useEffect, useCallback } from "react";
 import {
   X,
-  RotateCcw,
-  Check,
   Sparkles,
-  Mic,
-  Radio,
-  Volume2,
-  Cpu,
-  Brain,
   Trash2,
-  ChevronDown,
-  ChevronUp,
 } from "lucide-react";
 import { AssistantSettings, ConnectionStatus } from "../types/assistant";
 import { MemoryItem } from "../types/memory";
 import { AVAILABLE_VOICES } from "../config/voiceConfig";
 import { CHAT_MODEL, CHAT_MODEL_NAME, LIVE_MODEL, LIVE_MODEL_NAME, THINKING_LEVEL } from "../config/modelConfig";
-import { JARVIS_SYSTEM_INSTRUCTION } from "../config/jarvisConfig";
 import { ASSISTANT_PROFILES } from "../config/assistantProfiles";
 import { memoryService } from "../services/memoryService";
-import { getAndroidApiKey, setAndroidApiKey, validateAndroidApiKey } from "../services/androidRuntime";
+import { getAndroidApiKey, validateAndroidApiKey } from "../services/androidRuntime";
 
 interface SettingsProps {
   isOpen: boolean;
