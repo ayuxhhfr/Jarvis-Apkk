@@ -1,28 +1,7 @@
-import { registerPlugin, Capacitor } from "@capacitor/core";
+import { Capacitor } from "@capacitor/core";
 
-interface JarvisSpeechPlugin {
-  startListening(options?: { language?: string }): Promise<void>;
-  stopListening(): Promise<void>;
-  startPcmCapture(options?: { sampleRate?: number; chunkSamples?: number }): Promise<void>;
-  stopPcmCapture(): Promise<void>;
-  speak(options: { text: string }): Promise<void>;
-  stopSpeaking(): Promise<void>;
-  getClipboard(): Promise<{ text: string }>;
-  addListener(
-    eventName:
-      | "result"
-      | "partialResult"
-      | "error"
-      | "state"
-      | "audioChunk"
-      | "speechActivity"
-      | "audioReady"
-      | "audioCaptureError",
-    listener: (event: any) => void
-  ): Promise<{ remove: () => Promise<void> }>;
-}
+import { nativeBridge } from "./nativeBridge";
 
-const JarvisSpeech = registerPlugin<JarvisSpeechPlugin>("MyJarvisSpeech");
 const API_KEY_STORAGE = "jarvis.android.geminiApiKey";
 const CHAT_MODEL = "gemini-3.5-flash";
 
@@ -391,7 +370,7 @@ export async function listenAndroid(
   let errorListener: { remove: () => Promise<void> } | null = null;
   let stateListener: { remove: () => Promise<void> } | null = null;
 
-  resultListener = await JarvisSpeech.addListener("result", (event: any) => {
+  resultListener = await nativeBridge.addListener("result", (event: any) => {
     if (!stopped) {
       const text = String(event?.text || "").trim();
       if (text) onResult(text);
