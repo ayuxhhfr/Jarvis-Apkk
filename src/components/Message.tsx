@@ -132,7 +132,7 @@ const MessageComponent: React.FC<MessageProps> = ({ message }) => {
             isUser ? "text-cyan-50" : "text-white/95"
           }`}
         >
-          <StreamingText content={content} active={!isUser && isStreaming} />
+          <StreamingText content={content} active={!isUser && Boolean(isStreaming)} />
           {!isUser && isStreaming && (
             <span
               aria-hidden="true"
