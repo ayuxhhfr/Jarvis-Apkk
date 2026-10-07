@@ -115,12 +115,12 @@ export const InputBar: React.FC<InputBarProps> = ({
     <div className="w-full max-w-3xl mx-auto px-4 pb-2 sm:pb-4 select-none">
       {/* File Attachment Capsule Sitting Above Text Area */}
       {attachedFile && (
-        <div className="flex items-center gap-2 p-1.5 rounded-xl bg-white/[0.03] border border-white/[0.08] text-[11px] font-mono text-[#00ffaa] animate-fadeIn select-none mb-2 w-max max-w-full">
+        <div className="flex items-center gap-2 p-1.5 rounded-xl bg-white/[0.03] border border-white/[0.08] text-[11px] font-mono text-[#20d9ff] animate-fadeIn select-none mb-2 w-max max-w-full">
           {attachedPreview ? (
             <img
               src={attachedPreview}
               alt="Attachment preview"
-              className="w-8 h-8 rounded-md object-cover border border-[#00ffaa]/20 shrink-0"
+              className="w-8 h-8 rounded-md object-cover border border-[#20d9ff]/20 shrink-0"
             />
           ) : (
             <div className="w-8 h-8 rounded-md bg-white/[0.05] border border-white/[0.1] flex items-center justify-center shrink-0">
@@ -142,7 +142,7 @@ export const InputBar: React.FC<InputBarProps> = ({
         </div>
       )}
 
-      <div className="relative flex items-end gap-1.5 p-1.5 rounded-2xl sm:rounded-3xl bg-[#0f1214] border border-white/[0.08] focus-within:border-[#00ffaa]/50 focus-within:ring-1 focus-within:ring-[#00ffaa]/30 transition-all duration-200 shadow-xl">
+      <div className="relative flex items-end gap-1.5 p-1.5 rounded-2xl sm:rounded-3xl bg-[#0a1117] border border-cyan-200/[0.10] focus-within:border-cyan-300/50 focus-within:ring-1 focus-within:ring-cyan-300/20 transition-all duration-200 shadow-xl">
         {/* Hidden Native File Input */}
         <input
           ref={fileInputRef}
@@ -173,7 +173,7 @@ export const InputBar: React.FC<InputBarProps> = ({
           placeholder="Message JARVIS..."
           rows={1}
           disabled={disabled}
-          className="flex-1 max-h-[120px] py-2 px-1 bg-transparent text-sm text-[#e6e8eb] placeholder-neutral-500 focus:outline-none resize-none font-sans leading-relaxed"
+          className="flex-1 max-h-[120px] py-2 px-1 bg-transparent text-sm text-[#e6e8eb] placeholder-neutral-600 focus:outline-none resize-none font-sans leading-relaxed"
         />
 
         {/* Send Button */}
@@ -184,7 +184,7 @@ export const InputBar: React.FC<InputBarProps> = ({
           aria-label="Send message"
           className={`p-2.5 rounded-xl transition-all cursor-pointer ${
             (text.trim() || attachedFile) && !disabled
-              ? "bg-[#00ffaa] text-black hover:bg-[#00e599] active:scale-95 shadow-md shadow-[#00ffaa]/20"
+              ? "bg-[#20d9ff] text-black hover:bg-[#0ab8dc] active:scale-95 shadow-md shadow-[#20d9ff]/20"
               : "text-neutral-600 bg-white/[0.03] cursor-not-allowed"
           }`}
         >
