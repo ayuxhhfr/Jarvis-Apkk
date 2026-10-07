@@ -16,7 +16,7 @@ import { AVAILABLE_VOICES } from "../config/voiceConfig";
 import { CHAT_MODEL, CHAT_MODEL_NAME, LIVE_MODEL, LIVE_MODEL_NAME, THINKING_LEVEL } from "../config/modelConfig";
 import { ASSISTANT_PROFILES } from "../config/assistantProfiles";
 import { memoryService } from "../services/memoryService";
-import { getAndroidApiKey, validateAndroidApiKey } from "../services/androidRuntime";
+import { getAndroidApiKey, setAndroidApiKey, validateAndroidApiKey } from "../services/androidRuntime";
 
 interface SettingsProps {
   isOpen: boolean;
