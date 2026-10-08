@@ -1,5 +1,5 @@
 import { Capacitor, registerPlugin } from "@capacitor/core";
-import type { NativeVoicePlugin } from "../types/nativeBridge";
+import type { MicrophonePermissionResult, NativeVoicePlugin } from "../types/nativeBridge";
 
 const NativeVoice = registerPlugin<NativeVoicePlugin>("MyJarvisSpeech");
 
@@ -8,10 +8,16 @@ export const nativeBridge = {
     return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
   },
 
-  async requestMicrophonePermission(): Promise<boolean> {
-    if (!this.isAvailable()) return false;
+  async requestMicrophonePermission(): Promise<MicrophonePermissionResult> {
+    if (!this.isAvailable()) return { granted: false };
     const result = await NativeVoice.requestMicrophonePermission();
-    return result?.granted === true;
+    return { granted: result?.granted === true, permanentlyDenied: result?.permanentlyDenied === true };
+  },
+
+  async checkMicrophonePermission(): Promise<MicrophonePermissionResult> {
+    if (!this.isAvailable()) return { granted: false };
+    const result = await NativeVoice.checkMicrophonePermission();
+    return { granted: result?.granted === true, permanentlyDenied: result?.permanentlyDenied === true };
   },
 
   startPcmCapture(options?: { sampleRate?: number; chunkSamples?: number }) {
@@ -30,6 +36,11 @@ export const nativeBridge = {
   stopPlayback() {
     if (!this.isAvailable()) return Promise.resolve();
     return NativeVoice.stopPlayback();
+  },
+
+  flushPlayback() {
+    if (!this.isAvailable()) return Promise.resolve();
+    return NativeVoice.flushPlayback();
   },
 
   startListening(options?: { language?: string }) {
