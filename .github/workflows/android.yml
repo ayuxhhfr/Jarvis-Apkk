@@ -1,4 +1,5 @@
 name: JARVIS Android Hybrid Build
+# Build source is main; native/UI validation runs on every main push.
 
 on:
   workflow_dispatch:
