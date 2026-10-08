@@ -187,11 +187,12 @@ class AvatarEngine {
       new THREE.LineBasicMaterial({
         color: 0x6defff,
         transparent: true,
-        opacity: 0.22,
+        opacity: 0.045,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       })
     );
+    this.wire.renderOrder = 8;
 
     const pointGeometry = new THREE.BufferGeometry();
     const source = parsed.vertices;
@@ -216,21 +217,27 @@ class AvatarEngine {
     );
 
     const eyeMaterial = new THREE.MeshBasicMaterial({
-      color: 0x072f38,
+      color: 0x03171d,
       transparent: true,
-      opacity: 0.92,
+      opacity: 0.98,
+      depthTest: false,
+      depthWrite: false,
     });
     const irisMaterial = new THREE.MeshBasicMaterial({
-      color: 0x76f5ff,
+      color: 0x9df8ff,
       transparent: true,
-      opacity: 0.92,
+      opacity: 0.98,
       blending: THREE.AdditiveBlending,
+      depthTest: false,
+      depthWrite: false,
     });
     const socketMaterial = new THREE.LineBasicMaterial({
       color: 0x7befff,
       transparent: true,
-      opacity: 0.3,
+      opacity: 0.48,
       blending: THREE.AdditiveBlending,
+      depthTest: false,
+      depthWrite: false,
     });
 
     const eyeBall = new THREE.SphereGeometry(0.082, 12, 8);
@@ -529,10 +536,10 @@ class AvatarEngine {
       speaking ? 1 : listening ? 0.55 : thinking ? 0.8 : 0.18;
 
     (this.wire.material as THREE.LineBasicMaterial).opacity =
-      0.17 + this.energy * 0.16 + (thinking ? 0.04 : 0);
+      0.035 + this.energy * 0.055 + (thinking ? 0.015 : 0);
 
     (this.particles.material as THREE.PointsMaterial).opacity =
-      0.18 + this.energy * 0.3;
+      0.12 + this.energy * 0.18;
 
     const irisGlow = 0.45 + this.energy * 0.45;
     (this.leftIris.material as THREE.MeshBasicMaterial).opacity = irisGlow;
