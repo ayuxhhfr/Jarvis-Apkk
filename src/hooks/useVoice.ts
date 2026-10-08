@@ -36,10 +36,12 @@ export function useVoice() {
       }
 
       if (Capacitor.getPlatform() === "android") {
-        const granted = await requestAndroidMicrophonePermission();
-        if (!granted) {
+        const permission = await requestAndroidMicrophonePermission();
+        if (!permission.granted) {
           throw new Error(
-            "Microphone permission is denied. Allow Microphone for JARVIS in Android Settings, then try again."
+            permission.permanentlyDenied
+              ? DENIED_SETTINGS_MESSAGE
+              : "Microphone permission was not granted. Tap the voice button and allow Microphone for JARVIS."
           );
         }
       }
