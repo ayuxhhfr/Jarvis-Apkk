@@ -334,9 +334,6 @@ public class MyJarvisSpeechPlugin extends Plugin {
                 final boolean finalNsEnabled = finalNs != null;
                 final boolean finalAgcEnabled = finalAgc != null;
                 pcmCaptureActive = true;
-                final boolean finalAecEnabled = aecEnabled;
-                final boolean finalNsEnabled = nsEnabled;
-                final boolean finalAgcEnabled = agcEnabled;
 
                 JSObject ready = new JSObject();
                 ready.put("sampleRate", sampleRate);
