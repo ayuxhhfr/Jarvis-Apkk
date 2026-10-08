@@ -59,6 +59,20 @@ jobs:
       - name: Generate Capacitor Android project
         run: npx cap add android
 
+      - name: Declare Android microphone permission
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          text = manifest.read_text(encoding="utf-8")
+          permission = '    <uses-permission android:name="android.permission.RECORD_AUDIO" />\\n'
+          if "android.permission.RECORD_AUDIO" not in text:
+              text = text.replace("<application", permission + "    <application", 1)
+              manifest.write_text(text, encoding="utf-8")
+          assert "android.permission.RECORD_AUDIO" in manifest.read_text(encoding="utf-8")
+          PY
+          grep -n "android.permission.RECORD_AUDIO" android/app/src/main/AndroidManifest.xml
+
       - name: Enable Kotlin Android compilation
         run: |
           sed -i "/classpath 'com.android.tools.build:gradle:/a\    classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20'" android/build.gradle
