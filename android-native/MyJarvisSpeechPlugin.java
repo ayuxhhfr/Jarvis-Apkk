@@ -11,7 +11,7 @@ import android.content.Context;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.os.Bundle;
-import android.util.Base64;\nimport android.media.AudioFormat;
+import android.util.Base64;import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.media.audiofx.AcousticEchoCanceler;
