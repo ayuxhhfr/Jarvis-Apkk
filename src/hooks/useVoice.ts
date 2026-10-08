@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Capacitor } from "@capacitor/core";
 import { audioManager, AudioChunkCallback, InterruptCallback } from "../services/audioManager";
-import { requestAndroidMicrophonePermission } from "../services/nativePermissions";
+import { requestAndroidMicrophonePermission, checkAndroidMicrophonePermission, DENIED_SETTINGS_MESSAGE } from "../services/nativePermissions";
 import { startAndroidPcmCapture } from "../services/androidRuntime";
 import { nativeBridge } from "../services/nativeBridge";
 
@@ -97,6 +97,21 @@ export function useVoice() {
     }
   }, []);
 
+  useEffect(() => {
+    if (Capacitor.getPlatform() !== "android") return;
+    const recheck = () => {
+      void checkAndroidMicrophonePermission().then(({ granted }) => {
+        if (granted) setPermissionError(null);
+      }).catch(() => {});
+    };
+    window.addEventListener("focus", recheck);
+    document.addEventListener("visibilitychange", recheck);
+    return () => {
+      window.removeEventListener("focus", recheck);
+      document.removeEventListener("visibilitychange", recheck);
+    };
+  }, []);
+
   const stopListening = useCallback(() => {
     nativePcmCleanupRef.current?.();
     nativePcmCleanupRef.current = null;
@@ -133,6 +148,14 @@ export function useVoice() {
       return;
     }
     audioManager.playAudioChunk(base64Data, onEnd);
+  }, []);
+
+  const flushAudioQueue = useCallback(() => {
+    if (Capacitor.getPlatform() === "android" && nativeBridge.isAvailable()) {
+      void nativeBridge.flushPlayback().catch((err) => {
+        console.warn("[NativeAudio] flushPlayback failed:", err);
+      });
+    }
   }, []);
 
   const playEncodedAudio = useCallback((base64Data: string, onEnd?: () => void) => {
