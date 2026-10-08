@@ -1,61 +1,44 @@
+import React,{useEffect,useRef} from "react";
+import * as THREE from "three";
+import modelText from "./avatar/canonicalFaceModel.obj?raw";
+import {nativeBridge} from "../services/nativeBridge";
+import {AssistantState} from "../types/assistant";
 
-import React, { useEffect, useState } from "react";
-import { AssistantState } from "../types/assistant";
-interface AIFaceProps { state: AssistantState; micLevel: number; outputLevel: number; className?: string; }
+type Features={rms:number;low:number;mid:number;high:number;zeroCrossing:number;timestamp:number};
+type Input={state:AssistantState;micLevel:number;outputLevel:number;outputFeatures:Features|null};
+const clamp=(v:number)=>Math.max(0,Math.min(1,v));
+const damp=(a:number,b:number,dt:number,t:number)=>a+(b-a)*(1-Math.exp(-dt/Math.max(.001,t)));
+const EYE_L=[33,7,163,144,145,153,154,155,133,246,161,160,159,158,157,173],EYE_R=[263,249,390,373,374,380,381,382,362,466,388,387,386,385,384,398];
+const MOUT=[61,146,91,181,84,17,314,405,321,375,291,185,40,39,37,0,267,269,270,409],MIN=[78,95,88,178,87,14,317,402,318,324,308,191,80,81,82,13,312,311,310,415],BROW=[46,53,52,65,55,70,63,105,66,107,276,283,282,295,285,300,293,334,296,336];
 
-export const AIFace: React.FC<AIFaceProps> = ({ state, micLevel, outputLevel, className = "" }) => {
-  const [blink, setBlink] = useState(false);
-  useEffect(() => {
-    let dead = false;
-    const loop = () => {
-      const timer = window.setTimeout(() => {
-        if (dead) return;
-        setBlink(true);
-        window.setTimeout(() => !dead && setBlink(false), 110);
-        loop();
-      }, 2600 + Math.random() * 2600);
-      return timer;
-    };
-    const timer = loop();
-    return () => { dead = true; window.clearTimeout(timer); };
-  }, []);
-  const level = Math.min(1, Math.max(0, state === "speaking" ? outputLevel : micLevel));
-  const speaking = state === "speaking";
-  const listening = state === "listening";
-  const thinking = state === "thinking";
-  const accent = speaking ? "#68e8ff" : listening ? "#00f6c7" : thinking ? "#9b8cff" : "#20d9ff";
-  const eyeY = thinking ? 3 : listening ? -1 : 0;
-  const mouthRy = speaking ? 3 + level * 18 : 1.5;
-  return (
-    <div className={"relative flex items-center justify-center overflow-hidden " + className}>
-      <div className="absolute inset-[8%] rounded-full border border-cyan-300/10 shadow-[0_0_70px_rgba(32,217,255,.08)]" />
-      <div className={"absolute inset-[15%] rounded-[48%] border border-cyan-200/10 bg-cyan-300/[0.015] " + (thinking ? "animate-pulse" : "")} />
-      <svg viewBox="0 0 320 360" className="relative h-full w-full drop-shadow-[0_0_18px_rgba(32,217,255,.32)]">
-        <defs>
-          <radialGradient id="jarvisFaceGlow" cx="50%" cy="42%" r="62%">
-            <stop offset="0%" stopColor={accent} stopOpacity=".18"/><stop offset="68%" stopColor={accent} stopOpacity=".055"/><stop offset="100%" stopColor={accent} stopOpacity="0"/>
-          </radialGradient>
-          <linearGradient id="jarvisFaceStroke" x1="0" x2="1">
-            <stop offset="0%" stopColor={accent} stopOpacity=".12"/><stop offset="45%" stopColor={accent} stopOpacity=".9"/><stop offset="100%" stopColor={accent} stopOpacity=".12"/>
-          </linearGradient>
-        </defs>
-        <ellipse cx="160" cy="178" rx="128" ry="150" fill="url(#jarvisFaceGlow)"/>
-        <path d="M72 118 Q83 43 160 34 Q237 43 248 118 L239 252 Q218 316 160 329 Q102 316 81 252Z" fill="none" stroke="url(#jarvisFaceStroke)" strokeWidth="2.2"/>
-        <path d="M87 120 Q96 61 160 51 Q224 61 233 120" fill="none" stroke={accent} strokeOpacity=".22"/>
-        <path d="M79 178 Q52 205 66 252 M241 178 Q268 205 254 252" fill="none" stroke={accent} strokeOpacity=".18"/>
-        <g stroke={accent} fill="none" strokeLinecap="round">
-          <path d={"M98 " + (154 + eyeY) + " Q119 " + (145 + eyeY) + " 138 " + (154 + eyeY)} strokeWidth="3" opacity=".9"/>
-          <path d={"M182 " + (154 + eyeY) + " Q201 " + (145 + eyeY) + " 222 " + (154 + eyeY)} strokeWidth="3" opacity=".9"/>
-          <ellipse cx="118" cy={154 + eyeY} rx="7" ry={blink ? 1 : 5} fill={accent} fillOpacity=".72" stroke="none"/>
-          <ellipse cx="202" cy={154 + eyeY} rx="7" ry={blink ? 1 : 5} fill={accent} fillOpacity=".72" stroke="none"/>
-          <path d="M151 163 Q160 172 169 163" strokeWidth="1.5" opacity=".4"/>
-          <path d="M147 196 Q160 202 173 196" strokeWidth="1.3" opacity=".42"/>
-          <ellipse cx="160" cy="236" rx={25 + level * 5} ry={mouthRy} strokeWidth="2.4" fill={accent} fillOpacity={speaking ? ".08" : ".025"}/>
-        </g>
-        <g fill={accent} opacity=".34"><circle cx="84" cy="136" r="2"/><circle cx="236" cy="136" r="2"/><circle cx="88" cy="270" r="1.7"/><circle cx="232" cy="270" r="1.7"/></g>
-        <path d={"M52 306 Q160 " + (326 + level * 4) + " 268 306"} fill="none" stroke={accent} strokeOpacity=".12"/>
-      </svg>
-      <div className="absolute bottom-[8%] rounded-full border border-cyan-300/10 bg-black/20 px-3 py-1 text-[8px] font-mono uppercase tracking-[0.28em] text-cyan-200/55">{state === "idle" ? "READY" : state.toUpperCase()}</div>
-    </div>
-  );
-};
+class Engine{
+ host:HTMLElement;r:THREE.WebGLRenderer|null=null;scene=new THREE.Scene();cam=new THREE.PerspectiveCamera(30,1,.1,100);root=new THREE.Group();mesh!:THREE.Mesh;holo!:THREE.ShaderMaterial;wire!:THREE.LineSegments;le!:THREE.Mesh;re!:THREE.Mesh;lp!:THREE.Mesh;rp!:THREE.Mesh;pos!:Float32Array;base!:Float32Array;frame=0;clock=new THREE.Clock();alive=false;t=0;blink=0;nextBlink=3;gx=0;gy=0;gtx=0;gty=0;nextGaze=1;mouth=0;spread=0;energy=0;peak=.18;input:Input={state:"idle",micLevel:0,outputLevel:0,outputFeatures:null};
+ constructor(h:HTMLElement){this.host=h;}
+ start(){if(this.alive)return;try{this.r=new THREE.WebGLRenderer({alpha:true,antialias:true,powerPreference:"high-performance"});}catch{return}this.alive=true;const w=Math.max(1,this.host.clientWidth),h=Math.max(1,this.host.clientHeight);this.r.setPixelRatio(Math.min(devicePixelRatio||1,/Android/i.test(navigator.userAgent)?1.25:1.5));this.r.setSize(w,h,false);this.r.setClearColor(0,0);this.r.outputColorSpace=THREE.SRGBColorSpace;this.r.toneMapping=THREE.ACESFilmicToneMapping;this.cam.position.set(0,.03,6.15);this.cam.lookAt(0,0,0);this.host.appendChild(this.r.domElement);
+  this.scene.add(new THREE.AmbientLight(0x09232c,1.35));const k=new THREE.DirectionalLight(0x39def4,2);k.position.set(2.5,3.5,5);this.scene.add(k);const parsed=this.parse(modelText);this.pos=parsed.v;this.base=parsed.v.slice();const g=new THREE.BufferGeometry();g.setAttribute("position",new THREE.BufferAttribute(this.pos,3));g.setIndex(new THREE.BufferAttribute(parsed.f,1));g.computeVertexNormals();g.scale(.205,.205,.205);g.translate(0,.08,.05);
+  this.mesh=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:0x08cbe9,emissive:0x034b5c,emissiveIntensity:1.2,metalness:.15,roughness:.58,transparent:true,opacity:.78,flatShading:true,side:THREE.DoubleSide}));
+  this.holo=new THREE.ShaderMaterial({uniforms:{uTime:{value:0},uEnergy:{value:0},uState:{value:0}},vertexShader:"varying vec3 n;varying vec3 p;void main(){vec4 w=modelMatrix*vec4(position,1.);p=w.xyz;n=normalize(mat3(modelMatrix)*normal);gl_Position=projectionMatrix*viewMatrix*w;}",fragmentShader:"uniform float uTime,uEnergy,uState;varying vec3 n,p;void main(){vec3 v=normalize(cameraPosition-p);float f=pow(1.-max(dot(normalize(n),v),0.),2.2);float s=.5+.5*sin(p.y*18.-uTime*(2.5+uEnergy*4.));float q=.5+.5*sin(p.x*31.+p.z*19.+uTime*.35);float a=.025+f*.18+s*.045+q*.025+uState*.025;gl_FragColor=vec4(.07,.85,1.,clamp(a,.02,.42));}",transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide});
+  this.mesh.add(new THREE.Mesh(g,this.holo));this.wire=new THREE.LineSegments(new THREE.WireframeGeometry(g),new THREE.LineBasicMaterial({color:0x63efff,transparent:true,opacity:.40,blending:THREE.AdditiveBlending,depthWrite:false}));
+  const sg=new THREE.SphereGeometry(1,24,18);sg.scale(1.46,1.82,1.13);sg.translate(0,.30,-.60);const sm=new THREE.MeshBasicMaterial({color:0x087d9a,transparent:true,opacity:.055,blending:THREE.AdditiveBlending,side:THREE.BackSide,depthWrite:false});const sw=new THREE.LineBasicMaterial({color:0x1bcfe9,transparent:true,opacity:.11,blending:THREE.AdditiveBlending,depthWrite:false});const skull=new THREE.Mesh(sg,sm),skw=new THREE.LineSegments(new THREE.WireframeGeometry(sg),sw);
+  const ng=new THREE.CylinderGeometry(.48,.68,1.34,14,4,true);ng.translate(0,-1.60,-.38);const neck=new THREE.Mesh(ng,sm),nw=new THREE.LineSegments(new THREE.WireframeGeometry(ng),sw);
+  const eg=new THREE.SphereGeometry(.105,10,7),pg=new THREE.SphereGeometry(.043,8,6),em=new THREE.MeshBasicMaterial({color:0x78f8ff,blending:THREE.AdditiveBlending}),pm=new THREE.MeshBasicMaterial({color:0x00151b});this.le=new THREE.Mesh(eg,em);this.re=new THREE.Mesh(eg.clone(),em);this.lp=new THREE.Mesh(pg,pm);this.rp=new THREE.Mesh(pg.clone(),pm);
+  this.root.add(skull,skw,neck,nw,this.mesh,this.wire,this.le,this.re,this.lp,this.rp);this.scene.add(this.root);this.clock.start();this.resize();this.animate();this.ro=new ResizeObserver(()=>this.resize());this.ro.observe(this.host);}
+ ro!:ResizeObserver;
+ parse(s:string){const v:number[]=[],f:number[]=[];for(const l of s.split(/\r?\n/)){if(l.startsWith("v ")){const a=l.trim().split(/\s+/);v.push(+a[1],+a[2],+a[3]);}else if(l.startsWith("f ")){const a=l.trim().split(/\s+/);for(let i=1;i<4;i++)f.push(+a[i].split("/")[0]-1)}}return{v:new Float32Array(v),f:new Uint32Array(f)};}
+ update(i:Input){this.input=i;}
+ point(ids:number[]){const p=this.pos,v=new THREE.Vector3();for(const id of ids){v.x+=p[id*3];v.y+=p[id*3+1];v.z+=p[id*3+2]}return v.multiplyScalar(.205/ids.length).add(new THREE.Vector3(0,.08,.05));}
+ animate=()=>{if(!this.alive||!this.r)return;this.frame=requestAnimationFrame(this.animate);const dt=Math.min(.05,this.clock.getDelta());this.t+=dt;const speak=this.input.state==="speaking",think=this.input.state==="thinking",f=this.input.outputFeatures,src=speak?Math.max(this.input.outputLevel,f?.rms||0):this.input.micLevel;this.energy=damp(this.energy,speak?src:src*.55,dt,.1);this.root.rotation.y=damp(this.root.rotation.y,.075*Math.sin(this.t*.31)+(think?.06:0),dt,.3);this.root.rotation.x=damp(this.root.rotation.x,.025*Math.sin(this.t*.23+.7),dt,.32);
+  if(this.t>this.nextBlink&&this.input.state!=="thinking"){this.blink=1;this.nextBlink=this.t+3.2+Math.random()*3.8}else this.blink=Math.max(0,this.blink-dt*9.5);if(this.t>this.nextGaze){this.gtx=think?(Math.random()>.5?1:-1)*(.25+Math.random()*.3):(Math.random()*2-1)*(speak?.2:.13);this.gty=think?.18+Math.random()*.18:(Math.random()*2-1)*.08;this.nextGaze=this.t+(think?1.9:1.35)+Math.random()*1.7}this.gx=damp(this.gx,this.gtx,dt,.055);this.gy=damp(this.gy,this.gty,dt,.055);
+  const open=f?Math.max(0,f.low*.72+f.mid*.42-f.high*.18)*2.8:this.input.outputLevel;this.peak=Math.max(this.peak-dt*.55,speak?(f?.rms||this.input.outputLevel):.18);const ref=Math.max(.18,this.peak),q=speak?(f?.rms||this.input.outputLevel)-.1*ref:0,target=speak?Math.pow(clamp(q/(ref*.9)),.82)*(.55+clamp(open)*.45):0;this.mouth=damp(this.mouth,target,dt,target>this.mouth?.022:speak?.012:.055);this.spread=damp(this.spread,speak?Math.max(-.55,Math.min(.65,(f?(f.mid-f.low)*2.2:0))):0,dt,.03);
+  this.pos.set(this.base);for(const id of MOUT){const i=id*3,side=this.pos[i]<0?-1:1;this.pos[i]+=side*this.spread*Math.min(1,Math.abs(this.pos[i])/7.5)*this.mouth*.34;this.pos[i+1]+=(this.pos[i+1]<-4?-1:1)*this.mouth*(this.pos[i+1]<-4?.34:.16)}for(const id of MIN){const i=id*3,side=this.pos[i]<0?-1:1;this.pos[i]+=side*this.spread*.18*this.mouth;this.pos[i+1]+=(id===13||id===82||id===312?.16:-.22)*this.mouth}for(const id of BROW)this.pos[id*3+1]+=(think?-.12:this.input.state==="listening"?.08+this.input.micLevel*.1:speak?this.energy*.22:0)*.48;
+  const py=-4.2,pz=4.45,a=this.mouth*.1,c=Math.cos(a),ss=Math.sin(a);for(let i=0;i<this.pos.length;i+=3)if(this.pos[i+1]<py){const dy=this.pos[i+1]-py,dz=this.pos[i+2]-pz;this.pos[i+1]=py+dy*c-dz*ss;this.pos[i+2]=pz+dy*ss+dz*c}const pa=this.mesh.geometry.getAttribute("position") as THREE.BufferAttribute;pa.needsUpdate=true;this.mesh.geometry.computeVertexNormals();
+  const l=this.point(EYE_L),r=this.point(EYE_R),lid=Math.max(.06,1-this.blink);const lx=l.x+this.gx*.075,ly=l.y+this.gy*.045,rx=r.x+this.gx*.075,ry=r.y+this.gy*.045;this.le.position.set(lx,ly,l.z+.08);this.re.position.set(rx,ry,r.z+.08);this.lp.position.set(lx+this.gx*.025,ly+this.gy*.02,l.z+.145);this.rp.position.set(rx+this.gx*.025,ry+this.gy*.02,r.z+.145);this.le.scale.y=this.re.scale.y=this.lp.scale.y=this.rp.scale.y=lid;
+  this.holo.uniforms.uTime.value=this.t;this.holo.uniforms.uEnergy.value=this.energy;this.holo.uniforms.uState.value=speak?1:this.input.state==="listening"?.55:think?.82:.18;this.root.position.y=Math.sin(this.t*.48)*.025;this.r!.render(this.scene,this.cam);}
+ resize(){if(!this.r)return;const w=Math.max(1,this.host.clientWidth),h=Math.max(1,this.host.clientHeight);this.cam.aspect=w/h;this.cam.updateProjectionMatrix();this.r.setSize(w,h,false);}
+ dispose(){this.alive=false;cancelAnimationFrame(this.frame);this.ro?.disconnect();this.scene.traverse(o=>{const x=o as THREE.Mesh|THREE.LineSegments;if(x.geometry)x.geometry.dispose();if(x.material){const m=Array.isArray(x.material)?x.material:[x.material];m.forEach(v=>v.dispose())}});this.r?.renderLists.dispose();this.r?.dispose();if(this.r?.domElement.parentElement===this.host)this.host.removeChild(this.r.domElement);this.scene.clear();this.r=null;}
+}
+
+export const AIFace:React.FC<{state:AssistantState;micLevel:number;outputLevel:number;className?:string}>=({state,micLevel,outputLevel,className=""})=>{
+ const host=useRef<HTMLDivElement>(null),eng=useRef<Engine|null>(null),input=useRef<Input>({state,micLevel,outputLevel,outputFeatures:null});
+ input.current={...input.current,state,micLevel,outputLevel};
+ useEffect(()=>{if(!host.current)return;const e=new Engine(host.current);eng.current=e;e.start();let h:any=null,dead=false;if(nativeBridge.isAvailable())void nativeBridge.addListener("outputAudioFeatures",(x:any)=>{if(dead)return;input.current.outputFeatures={rms:+x.rms||0,low:+x.low||0,mid:+x.mid||0,high:+x.high||0,zeroCrossing:+x.zeroCrossing||0,timestamp:+x.timestamp||Date.now()};e.update(input.current)}).then(v=>h=v);return()=>{dead=true;try{h?.remove?.()}catch{}e.dispose();eng.current=null}},[]);useEffect(()=>{eng.current?.update(input.current)},[state,micLevel,outputLevel]);return <div ref={host} className={"relative flex h-full w-full items-center justify-center overflow-visible "+className} aria-label="JARVIS holographic human avatar"/>};
