@@ -15,6 +15,9 @@ import android.util.Base64;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
+import android.media.audiofx.AcousticEchoCanceler;
+import android.media.audiofx.AutomaticGainControl;
+import android.media.audiofx.NoiseSuppressor;
 import android.os.Handler;
 import android.os.Looper;
 import android.speech.RecognitionListener;
@@ -317,13 +320,19 @@ public class MyJarvisSpeechPlugin extends Plugin {
                 pcmRecorder = activeRecord;
                 final int sessionId = activeRecord.getAudioSessionId();
 
-                // Do not stack explicit AEC/NS/AGC effects. The Android
-                // speech-oriented input source handles the vendor voice path;
-                // stacking effects here caused pumping/clipping on some phones.
-                boolean aecEnabled = false;
-                boolean nsEnabled = false;
-                boolean agcEnabled = false;
-
+                // Hardware self-echo guard: suppress JARVIS speaker leakage before PCM reaches Gemini.
+                AcousticEchoCanceler aec = null;
+                NoiseSuppressor ns = null;
+                AutomaticGainControl agc = null;
+                try { if (AcousticEchoCanceler.isAvailable()) { aec = AcousticEchoCanceler.create(sessionId); if (aec != null) aec.setEnabled(true); } } catch (Throwable ignored) {}
+                try { if (NoiseSuppressor.isAvailable()) { ns = NoiseSuppressor.create(sessionId); if (ns != null) ns.setEnabled(true); } } catch (Throwable ignored) {}
+                try { if (AutomaticGainControl.isAvailable()) { agc = AutomaticGainControl.create(sessionId); if (agc != null) agc.setEnabled(true); } } catch (Throwable ignored) {}
+                final AcousticEchoCanceler finalAec = aec;
+                final NoiseSuppressor finalNs = ns;
+                final AutomaticGainControl finalAgc = agc;
+                final boolean finalAecEnabled = finalAec != null;
+                final boolean finalNsEnabled = finalNs != null;
+                final boolean finalAgcEnabled = finalAgc != null;
                 pcmCaptureActive = true;
                 final boolean finalAecEnabled = aecEnabled;
                 final boolean finalNsEnabled = nsEnabled;
@@ -408,6 +417,9 @@ public class MyJarvisSpeechPlugin extends Plugin {
                         }
                     } finally {
                         try { activeRecord.stop(); } catch (Throwable ignored) {}
+                        try { if (finalAec != null) finalAec.release(); } catch (Throwable ignored) {}
+                        try { if (finalNs != null) finalNs.release(); } catch (Throwable ignored) {}
+                        try { if (finalAgc != null) finalAgc.release(); } catch (Throwable ignored) {}
                     }
                 }, "JarvisNativeMic");
 

@@ -37,18 +37,17 @@ export const Header: React.FC<HeaderProps> = ({
   })();
 
   return (
-    <header className="jarvis-safe-top w-full flex items-center justify-between px-5 sm:px-7 py-2.5 border-b border-white/[0.045] bg-[#05050a]/55 backdrop-blur-md z-30 select-none">
+    <header className="jarvis-safe-top w-full flex items-center justify-between px-4 sm:px-6 py-2 border-b border-white/[0.045] bg-[#05050a]/55 backdrop-blur-md z-30 select-none">
       <div className="flex flex-col">
         <div className="flex items-center gap-2">
-          <span className="text-[18px] md:text-xl font-semibold tracking-[0.34em] text-white uppercase">{assistantName}</span>
+          <span className="text-[16px] md:text-lg font-semibold tracking-[0.34em] text-white uppercase">{assistantName}</span>
           <span className={`inline-block w-1.5 h-1.5 rounded-full ${statusInfo.dot}`} title={statusInfo.label} aria-label={statusInfo.label} />
         </div>
-        <span className="text-[9px] tracking-[0.30em] font-mono text-neutral-500 uppercase">PERSONAL ASSISTANT</span>
       </div>
 
       <div className="flex items-center gap-1 sm:gap-2">
         {isSharing ? (
-          <button type="button" onClick={onStopScreenShare} aria-label="Stop screen sharing" className="w-10 h-10 rounded-xl flex items-center justify-center text-cyan-300 bg-cyan-400/[0.08] border border-cyan-400/20">
+          <button type="button" onClick={onStopScreenShare} aria-label="Stop screen sharing" className="w-9 h-9 rounded-lg flex items-center justify-center text-cyan-300 bg-cyan-400/[0.08] border border-cyan-400/20">
             <X className="w-4 h-4"/>
           </button>
         ) : isRequesting ? (
@@ -56,7 +55,7 @@ export const Header: React.FC<HeaderProps> = ({
         ) : isIframeRestricted ? (
           <button type="button" onClick={onOpenInNewTab} aria-label="Open browser in new tab" className="w-10 h-10 rounded-xl flex items-center justify-center text-cyan-300 hover:bg-white/[0.05]"><ExternalLink className="w-4 h-4"/></button>
         ) : (
-          <button type="button" onClick={onOpenBrowser} aria-label="Open JARVIS browser" className="w-10 h-10 rounded-xl flex items-center justify-center text-neutral-400 hover:text-cyan-300 hover:bg-white/[0.05]"><Compass className="w-[18px] h-[18px]"/></button>
+          <button type="button" onClick={onOpenBrowser} aria-label="Open JARVIS browser" className="w-10 h-10 rounded-xl flex items-center justify-center text-neutral-400 hover:text-cyan-300 hover:bg-white/[0.05]"><Compass className="w-4 h-4"/></button>
         )}
         {onOpenMemory && <button onClick={onOpenMemory} aria-label="Memory Core" className="w-10 h-10 rounded-xl flex items-center justify-center text-neutral-400 hover:text-cyan-300 hover:bg-white/[0.05]"><Brain className="w-[18px] h-[18px]"/></button>}
         {onOpenChats && <button onClick={onOpenChats} aria-label="Conversations" className="w-10 h-10 rounded-xl flex items-center justify-center text-neutral-400 hover:text-cyan-300 hover:bg-cyan-300/[0.04]"><MessageSquare className="w-[18px] h-[18px]"/></button>}

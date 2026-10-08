@@ -158,6 +158,7 @@ export function useAssistant() {
     stopPlayback,
     setAssistantSpeaking,
     permissionError,
+    clearPermissionError,
   } = useVoice();
 
   // Gemini Live WebSocket bridge hook
@@ -168,6 +169,7 @@ export function useAssistant() {
     sendAudio,
     sendInterrupt,
     sendAudioStreamEnd,
+    clearError: clearLiveError,
     geminiLive,
   } = useGeminiLive({
     model: settings.liveModel,
@@ -176,6 +178,18 @@ export function useAssistant() {
     systemInstruction: settings.systemInstruction,
     voiceOnly: true,
   });
+
+  useEffect(() => {
+    if (state !== "thinking") return;
+    const timer = window.setTimeout(() => {
+      if (stateRef.current !== "thinking") return;
+      stopPlayback();
+      setAssistantSpeaking(false);
+      setState("idle");
+      setActiveError("JARVIS took too long to respond. The turn was reset — tap the mic to try again.");
+    }, 15000);
+    return () => window.clearTimeout(timer);
+  }, [state, stopPlayback, setAssistantSpeaking]);
 
   // Deterministic native Android app-launch path. It runs before Gemini so commands
   // such as "open YouTube", "launch WhatsApp", or "start Spotify" never depend on
@@ -739,13 +753,13 @@ export function useAssistant() {
           (base64Pcm) => sendAudio(base64Pcm),
           () => handleAndroidBargeIn(),
           () => {
-            // Client VAD has detected the end of speech. Flush Gemini's
-            // realtime input immediately instead of waiting for another
-            // server-side silence window, while keeping the mic open.
+            // One-shot Android turn: close the microphone as soon as the user's utterance ends.
             if (stateRef.current === "listening" || stateRef.current === "speaking") {
+              stopListening();
+              setAndroidMicActive(false);
               setState("thinking");
+              sendAudioStreamEnd();
             }
-            sendAudioStreamEnd();
           }
         );
       } catch (err) {
@@ -1085,7 +1099,9 @@ export function useAssistant() {
 
   const dismissError = useCallback(() => {
     setActiveError(null);
-  }, []);
+    clearPermissionError();
+    clearLiveError();
+  }, [clearPermissionError, clearLiveError]);
 
   const startScreenShare = useCallback(async () => {
     const res = await screenShareService.start();

@@ -112,6 +112,10 @@ export function useVoice() {
     };
   }, []);
 
+  const clearPermissionError = useCallback(() => {
+    setPermissionError(null);
+  }, []);
+
   const stopListening = useCallback(() => {
     nativePcmCleanupRef.current?.();
     nativePcmCleanupRef.current = null;
@@ -210,6 +214,7 @@ export function useVoice() {
     micLevel,
     outputLevel,
     permissionError,
+    clearPermissionError,
     startListening,
     stopListening,
     stopPlayback,

@@ -26,9 +26,15 @@ export function useGeminiLive(initialConfig?: LiveSessionConfig) {
     }
   }, []);
 
+  const clearError = useCallback(() => {
+    setErrorMessage(null);
+    if (status === "error") setStatus("disconnected");
+  }, [status]);
+
   const disconnect = useCallback(() => {
     geminiLive.disconnect();
     setStatus("disconnected");
+    setErrorMessage(null);
   }, []);
 
   const reconfigure = useCallback((customConfig: LiveSessionConfig) => {
@@ -84,6 +90,7 @@ export function useGeminiLive(initialConfig?: LiveSessionConfig) {
     sendText,
     sendInterrupt,
     sendAudioStreamEnd,
+    clearError,
     geminiLive,
   };
 }

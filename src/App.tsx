@@ -6,7 +6,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { Header } from "./components/Header";
-import { AIOrb } from "./components/AIOrb";
+import { AIFace } from "./components/AIFace";
 import { VoiceButton } from "./components/VoiceButton";
 import { StatusIndicator } from "./components/StatusIndicator";
 import { Chat } from "./components/Chat";
@@ -336,7 +336,7 @@ export default function App() {
                   ? "w-40 h-40 xs:w-44 xs:h-44 sm:w-56 sm:h-56 md:w-72 md:h-72 lg:w-80 lg:h-80"
                   : "w-52 h-52 xs:w-60 xs:h-60 sm:w-72 sm:h-72 md:w-80 md:h-80 lg:w-96 lg:h-96"
               }`}>
-                <AIOrb
+                <AIFace
                   state={state}
                   micLevel={micLevel}
                   outputLevel={outputLevel}
@@ -393,7 +393,7 @@ export default function App() {
 
             {/* One-message live response surface. Older messages live in Conversations. */}
             {messages.length > 0 && (
-              <div className="absolute left-1/2 -translate-x-1/2 bottom-5 sm:bottom-8 w-[calc(100%-28px)] max-w-2xl z-20 pointer-events-auto">
+              <div className="absolute left-1/2 -translate-x-1/2 bottom-20 sm:bottom-24 w-[calc(100%-28px)] max-w-2xl z-20 pointer-events-auto">
                 <Chat messages={messages} />
               </div>
             )}
