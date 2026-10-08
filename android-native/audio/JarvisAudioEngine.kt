@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class JarvisAudioEngine {
 
     private val running = AtomicBoolean(false)
-    private val queue = LinkedBlockingQueue<ByteArray>(32)
+    private val queue = LinkedBlockingQueue<ByteArray>(256)
 
     @Volatile
     private var track: AudioTrack? = null
@@ -113,9 +113,19 @@ class JarvisAudioEngine {
         val bytes = Base64.decode(base64, Base64.NO_WRAP)
         if (bytes.isEmpty()) return
 
-        // Never allow an unbounded queue to create the stale-audio symptom.
-        while (!queue.offer(bytes)) {
-            queue.poll()
+        if (!queue.offer(bytes)) {
+            Thread.yield()
+            if (!queue.offer(bytes)) return
+        }
+    }
+
+    @Synchronized
+    fun flush() {
+        queue.clear()
+        track?.let { audioTrack ->
+            try { audioTrack.pause() } catch (_: Throwable) {}
+            try { audioTrack.flush() } catch (_: Throwable) {}
+            try { audioTrack.play() } catch (_: Throwable) {}
         }
     }
 
