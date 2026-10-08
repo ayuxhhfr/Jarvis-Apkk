@@ -11,8 +11,7 @@ import android.content.Context;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.os.Bundle;
-import android.util.Base64;\nimport org.json.JSONException;
-import android.media.AudioFormat;
+import android.util.Base64;\nimport android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.media.audiofx.AcousticEchoCanceler;
@@ -456,62 +455,45 @@ public class MyJarvisSpeechPlugin extends Plugin {
         }
     }
 
-    @PluginMethod
     private JSObject analyzeOutputPcm(byte[] pcm) {
-    JSObject out = new JSObject();
-    if (pcm == null || pcm.length < 4) return out;
-    final int sampleCount = pcm.length / 2;
-    double sumSq = 0.0;
-    double lowSq = 0.0;
-    double midSq = 0.0;
-    double highSq = 0.0;
-    int zero = 0;
-    double low = 0.0;
-    double midLow = 0.0;
-    double prev = 0.0;
-    final double aLow = 1.0 - Math.exp(-2.0 * Math.PI * 800.0 / 24000.0);
-    final double aMid = 1.0 - Math.exp(-2.0 * Math.PI * 2600.0 / 24000.0);
-    for (int i = 0; i < sampleCount; i++) {
-      int lo = pcm[i * 2] & 0xff;
-      int hi = pcm[i * 2 + 1];
-      short s = (short) ((hi << 8) | lo);
-      double x = s / 32768.0;
-      sumSq += x * x;
-      low += aLow * (x - low);
-      midLow += aMid * (x - midLow);
-      double mid = midLow - low;
-      double high = x - midLow;
-      lowSq += low * low;
-      midSq += mid * mid;
-      highSq += high * high;
-      if ((x >= 0) != (prev >= 0)) zero++;
-      prev = x;
-    }
-    double rms = Math.sqrt(sumSq / Math.max(1, sampleCount));
-    double norm = Math.max(0.0001, rms);
-    out.put("rms", Math.min(1.0, rms * 2.8));
-    out.put("low", Math.min(1.0, Math.sqrt(lowSq / Math.max(1, sampleCount)) / norm));
-    out.put("mid", Math.min(1.0, Math.sqrt(midSq / Math.max(1, sampleCount)) / norm));
-    out.put("high", Math.min(1.0, Math.sqrt(highSq / Math.max(1, sampleCount)) / norm));
-    out.put("zeroCrossing", Math.min(1.0, (double) zero / Math.max(1, sampleCount)));
-    out.put("timestamp", System.currentTimeMillis());
-    return out;
-  }
-
-  public void playPcm(PluginCall call) {
-        String data = call.getString("data", "");
-        int sampleRate = call.getInt("sampleRate", 24000);
-        if (data == null || data.isEmpty()) {
-            call.resolve();
-            return;
+        JSObject out = new JSObject();
+        if (pcm == null || pcm.length < 4) return out;
+        final int n = pcm.length / 2;
+        double sum=0, loE=0, midE=0, hiE=0, lo=0, midLo=0, prev=0;
+        int zc=0;
+        final double aLo=1.0-Math.exp(-2.0*Math.PI*800.0/24000.0);
+        final double aMid=1.0-Math.exp(-2.0*Math.PI*2600.0/24000.0);
+        for(int i=0;i<n;i++){
+            int b0=pcm[i*2]&0xff, b1=pcm[i*2+1];
+            double x=((short)((b1<<8)|b0))/32768.0;
+            sum+=x*x; lo+=aLo*(x-lo); midLo+=aMid*(x-midLo);
+            double mid=midLo-lo, hi=x-midLo;
+            loE+=lo*lo; midE+=mid*mid; hiE+=hi*hi;
+            if((x>=0)!=(prev>=0)) zc++;
+            prev=x;
         }
+        double rms=Math.sqrt(sum/Math.max(1,n)), norm=Math.max(.0001,rms);
+        out.put("rms",Math.min(1.0,rms*2.8));
+        out.put("low",Math.min(1.0,Math.sqrt(loE/Math.max(1,n))/norm));
+        out.put("mid",Math.min(1.0,Math.sqrt(midE/Math.max(1,n))/norm));
+        out.put("high",Math.min(1.0,Math.sqrt(hiE/Math.max(1,n))/norm));
+        out.put("zeroCrossing",Math.min(1.0,(double)zc/Math.max(1,n)));
+        out.put("timestamp",System.currentTimeMillis());
+        return out;
+    }
+
+    @PluginMethod
+    public void playPcm(PluginCall call) {
+        String data=call.getString("data","");
+        int sampleRate=call.getInt("sampleRate",24000);
+        if(data==null||data.isEmpty()){call.resolve();return;}
+        final byte[] pcm;
+        try { pcm=Base64.decode(data,Base64.NO_WRAP); }
+        catch(Throwable e){ call.reject("Invalid PCM payload"); return; }
+        notifyListeners("outputAudioFeatures",analyzeOutputPcm(pcm));
         main.post(() -> {
-            try {
-                audioEngine.enqueueBase64Pcm(data, sampleRate);
-                call.resolve();
-            } catch (Throwable e) {
-                call.reject(e.getMessage() == null ? "Unable to play native PCM" : e.getMessage());
-            }
+            try { audioEngine.enqueuePcmBytes(pcm,sampleRate); call.resolve(); }
+            catch(Throwable e){ call.reject(e.getMessage()==null?"Unable to play native PCM":e.getMessage()); }
         });
     }
 

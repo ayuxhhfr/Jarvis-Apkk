@@ -107,16 +107,18 @@ class JarvisAudioEngine {
         worker?.start()
     }
 
-    fun enqueueBase64Pcm(base64: String, sampleRate: Int = 24000) {
+    fun enqueuePcmBytes(bytes: ByteArray, sampleRate: Int = 24000) {
         if (!running.get()) start(sampleRate)
-
-        val bytes = Base64.decode(base64, Base64.NO_WRAP)
         if (bytes.isEmpty()) return
 
         if (!queue.offer(bytes)) {
             Thread.yield()
             if (!queue.offer(bytes)) return
         }
+    }
+
+    fun enqueueBase64Pcm(base64: String, sampleRate: Int = 24000) {
+        enqueuePcmBytes(Base64.decode(base64, Base64.NO_WRAP), sampleRate)
     }
 
     @Synchronized
