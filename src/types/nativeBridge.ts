@@ -30,12 +30,19 @@ export interface NativeBridgeEvents {
   "native:wakeError": NativeVoiceError;
 }
 
+export interface MicrophonePermissionResult {
+  granted: boolean;
+  permanentlyDenied?: boolean;
+}
+
 export interface NativeVoicePlugin {
-  requestMicrophonePermission(): Promise<{ granted: boolean }>;
+  requestMicrophonePermission(): Promise<MicrophonePermissionResult>;
+  checkMicrophonePermission(): Promise<MicrophonePermissionResult>;
   startPcmCapture(options?: { sampleRate?: number; chunkSamples?: number }): Promise<void>;
   stopPcmCapture(): Promise<void>;
   playPcm(options: { data: string; sampleRate?: number }): Promise<void>;
   stopPlayback(): Promise<void>;
+  flushPlayback(): Promise<void>;
   startListening(options?: { language?: string }): Promise<void>;
   stopListening(): Promise<void>;
   speak(options: { text: string }): Promise<void>;
