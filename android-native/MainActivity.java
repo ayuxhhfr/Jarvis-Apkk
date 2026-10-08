@@ -1,16 +1,12 @@
 package com.jarvis.ai;
 
-import android.Manifest;
 import android.os.Bundle;
-import android.content.pm.PackageManager;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import androidx.annotation.Nullable;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
