@@ -1,44 +1,652 @@
-import React,{useEffect,useRef} from "react";
+import React, { useEffect, useRef } from "react";
 import * as THREE from "three";
 import modelText from "./avatar/canonicalFaceModel.obj?raw";
-import {nativeBridge} from "../services/nativeBridge";
-import {AssistantState} from "../types/assistant";
+import { nativeBridge } from "../services/nativeBridge";
+import { AssistantState } from "../types/assistant";
 
-type Features={rms:number;low:number;mid:number;high:number;zeroCrossing:number;timestamp:number};
-type Input={state:AssistantState;micLevel:number;outputLevel:number;outputFeatures:Features|null};
-const clamp=(v:number)=>Math.max(0,Math.min(1,v));
-const damp=(a:number,b:number,dt:number,t:number)=>a+(b-a)*(1-Math.exp(-dt/Math.max(.001,t)));
-const EYE_L=[33,7,163,144,145,153,154,155,133,246,161,160,159,158,157,173],EYE_R=[263,249,390,373,374,380,381,382,362,466,388,387,386,385,384,398];
-const MOUT=[61,146,91,181,84,17,314,405,321,375,291,185,40,39,37,0,267,269,270,409],MIN=[78,95,88,178,87,14,317,402,318,324,308,191,80,81,82,13,312,311,310,415],BROW=[46,53,52,65,55,70,63,105,66,107,276,283,282,295,285,300,293,334,296,336];
+type Features = {
+  rms: number;
+  low: number;
+  mid: number;
+  high: number;
+  zeroCrossing: number;
+  timestamp: number;
+};
 
-class Engine{
- host:HTMLElement;r:THREE.WebGLRenderer|null=null;scene=new THREE.Scene();cam=new THREE.PerspectiveCamera(30,1,.1,100);root=new THREE.Group();mesh!:THREE.Mesh;holo!:THREE.ShaderMaterial;wire!:THREE.LineSegments;le!:THREE.Mesh;re!:THREE.Mesh;lp!:THREE.Mesh;rp!:THREE.Mesh;pos!:Float32Array;base!:Float32Array;frame=0;clock=new THREE.Clock();alive=false;t=0;blink=0;nextBlink=3;gx=0;gy=0;gtx=0;gty=0;nextGaze=1;mouth=0;spread=0;energy=0;peak=.18;input:Input={state:"idle",micLevel:0,outputLevel:0,outputFeatures:null};
- constructor(h:HTMLElement){this.host=h;}
- start(){if(this.alive)return;try{this.r=new THREE.WebGLRenderer({alpha:true,antialias:true,powerPreference:"high-performance"});}catch{return}this.alive=true;const w=Math.max(1,this.host.clientWidth),h=Math.max(1,this.host.clientHeight);this.r.setPixelRatio(Math.min(devicePixelRatio||1,/Android/i.test(navigator.userAgent)?1.25:1.5));this.r.setSize(w,h,false);this.r.setClearColor(0,0);this.r.outputColorSpace=THREE.SRGBColorSpace;this.r.toneMapping=THREE.ACESFilmicToneMapping;this.cam.position.set(0,.03,6.15);this.cam.lookAt(0,0,0);this.host.appendChild(this.r.domElement);
-  this.scene.add(new THREE.AmbientLight(0x09232c,1.35));const k=new THREE.DirectionalLight(0x39def4,2);k.position.set(2.5,3.5,5);this.scene.add(k);const parsed=this.parse(modelText);this.pos=parsed.v;this.base=parsed.v.slice();const g=new THREE.BufferGeometry();g.setAttribute("position",new THREE.BufferAttribute(this.pos,3));g.setIndex(new THREE.BufferAttribute(parsed.f,1));g.computeVertexNormals();g.scale(.205,.205,.205);g.translate(0,.08,.05);
-  this.mesh=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:0x08cbe9,emissive:0x034b5c,emissiveIntensity:1.2,metalness:.15,roughness:.58,transparent:true,opacity:.78,flatShading:true,side:THREE.DoubleSide}));
-  this.holo=new THREE.ShaderMaterial({uniforms:{uTime:{value:0},uEnergy:{value:0},uState:{value:0}},vertexShader:"varying vec3 n;varying vec3 p;void main(){vec4 w=modelMatrix*vec4(position,1.);p=w.xyz;n=normalize(mat3(modelMatrix)*normal);gl_Position=projectionMatrix*viewMatrix*w;}",fragmentShader:"uniform float uTime,uEnergy,uState;varying vec3 n,p;void main(){vec3 v=normalize(cameraPosition-p);float f=pow(1.-max(dot(normalize(n),v),0.),2.2);float s=.5+.5*sin(p.y*18.-uTime*(2.5+uEnergy*4.));float q=.5+.5*sin(p.x*31.+p.z*19.+uTime*.35);float a=.025+f*.18+s*.045+q*.025+uState*.025;gl_FragColor=vec4(.07,.85,1.,clamp(a,.02,.42));}",transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide});
-  this.mesh.add(new THREE.Mesh(g,this.holo));this.wire=new THREE.LineSegments(new THREE.WireframeGeometry(g),new THREE.LineBasicMaterial({color:0x63efff,transparent:true,opacity:.40,blending:THREE.AdditiveBlending,depthWrite:false}));
-  const sg=new THREE.SphereGeometry(1,24,18);sg.scale(1.46,1.82,1.13);sg.translate(0,.30,-.60);const sm=new THREE.MeshBasicMaterial({color:0x087d9a,transparent:true,opacity:.055,blending:THREE.AdditiveBlending,side:THREE.BackSide,depthWrite:false});const sw=new THREE.LineBasicMaterial({color:0x1bcfe9,transparent:true,opacity:.11,blending:THREE.AdditiveBlending,depthWrite:false});const skull=new THREE.Mesh(sg,sm),skw=new THREE.LineSegments(new THREE.WireframeGeometry(sg),sw);
-  const ng=new THREE.CylinderGeometry(.48,.68,1.34,14,4,true);ng.translate(0,-1.60,-.38);const neck=new THREE.Mesh(ng,sm),nw=new THREE.LineSegments(new THREE.WireframeGeometry(ng),sw);
-  const eg=new THREE.SphereGeometry(.105,10,7),pg=new THREE.SphereGeometry(.043,8,6),em=new THREE.MeshBasicMaterial({color:0x78f8ff,blending:THREE.AdditiveBlending}),pm=new THREE.MeshBasicMaterial({color:0x00151b});this.le=new THREE.Mesh(eg,em);this.re=new THREE.Mesh(eg.clone(),em);this.lp=new THREE.Mesh(pg,pm);this.rp=new THREE.Mesh(pg.clone(),pm);
-  this.root.add(skull,skw,neck,nw,this.mesh,this.wire,this.le,this.re,this.lp,this.rp);this.scene.add(this.root);this.clock.start();this.resize();this.animate();this.ro=new ResizeObserver(()=>this.resize());this.ro.observe(this.host);}
- ro!:ResizeObserver;
- parse(s:string){const v:number[]=[],f:number[]=[];for(const l of s.split(/\r?\n/)){if(l.startsWith("v ")){const a=l.trim().split(/\s+/);v.push(+a[1],+a[2],+a[3]);}else if(l.startsWith("f ")){const a=l.trim().split(/\s+/);for(let i=1;i<4;i++)f.push(+a[i].split("/")[0]-1)}}return{v:new Float32Array(v),f:new Uint32Array(f)};}
- update(i:Input){this.input=i;}
- point(ids:number[]){const p=this.pos,v=new THREE.Vector3();for(const id of ids){v.x+=p[id*3];v.y+=p[id*3+1];v.z+=p[id*3+2]}return v.multiplyScalar(.205/ids.length).add(new THREE.Vector3(0,.08,.05));}
- animate=()=>{if(!this.alive||!this.r)return;this.frame=requestAnimationFrame(this.animate);const dt=Math.min(.05,this.clock.getDelta());this.t+=dt;const speak=this.input.state==="speaking",think=this.input.state==="thinking",f=this.input.outputFeatures,src=speak?Math.max(this.input.outputLevel,f?.rms||0):this.input.micLevel;this.energy=damp(this.energy,speak?src:src*.55,dt,.1);this.root.rotation.y=damp(this.root.rotation.y,.075*Math.sin(this.t*.31)+(think?.06:0),dt,.3);this.root.rotation.x=damp(this.root.rotation.x,.025*Math.sin(this.t*.23+.7),dt,.32);
-  if(this.t>this.nextBlink&&this.input.state!=="thinking"){this.blink=1;this.nextBlink=this.t+3.2+Math.random()*3.8}else this.blink=Math.max(0,this.blink-dt*9.5);if(this.t>this.nextGaze){this.gtx=think?(Math.random()>.5?1:-1)*(.25+Math.random()*.3):(Math.random()*2-1)*(speak?.2:.13);this.gty=think?.18+Math.random()*.18:(Math.random()*2-1)*.08;this.nextGaze=this.t+(think?1.9:1.35)+Math.random()*1.7}this.gx=damp(this.gx,this.gtx,dt,.055);this.gy=damp(this.gy,this.gty,dt,.055);
-  const open=f?Math.max(0,f.low*.72+f.mid*.42-f.high*.18)*2.8:this.input.outputLevel;this.peak=Math.max(this.peak-dt*.55,speak?(f?.rms||this.input.outputLevel):.18);const ref=Math.max(.18,this.peak),q=speak?(f?.rms||this.input.outputLevel)-.1*ref:0,target=speak?Math.pow(clamp(q/(ref*.9)),.82)*(.55+clamp(open)*.45):0;this.mouth=damp(this.mouth,target,dt,target>this.mouth?.022:speak?.012:.055);this.spread=damp(this.spread,speak?Math.max(-.55,Math.min(.65,(f?(f.mid-f.low)*2.2:0))):0,dt,.03);
-  this.pos.set(this.base);for(const id of MOUT){const i=id*3,side=this.pos[i]<0?-1:1;this.pos[i]+=side*this.spread*Math.min(1,Math.abs(this.pos[i])/7.5)*this.mouth*.34;this.pos[i+1]+=(this.pos[i+1]<-4?-1:1)*this.mouth*(this.pos[i+1]<-4?.34:.16)}for(const id of MIN){const i=id*3,side=this.pos[i]<0?-1:1;this.pos[i]+=side*this.spread*.18*this.mouth;this.pos[i+1]+=(id===13||id===82||id===312?.16:-.22)*this.mouth}for(const id of BROW)this.pos[id*3+1]+=(think?-.12:this.input.state==="listening"?.08+this.input.micLevel*.1:speak?this.energy*.22:0)*.48;
-  const py=-4.2,pz=4.45,a=this.mouth*.1,c=Math.cos(a),ss=Math.sin(a);for(let i=0;i<this.pos.length;i+=3)if(this.pos[i+1]<py){const dy=this.pos[i+1]-py,dz=this.pos[i+2]-pz;this.pos[i+1]=py+dy*c-dz*ss;this.pos[i+2]=pz+dy*ss+dz*c}const pa=this.mesh.geometry.getAttribute("position") as THREE.BufferAttribute;pa.needsUpdate=true;this.mesh.geometry.computeVertexNormals();
-  const l=this.point(EYE_L),r=this.point(EYE_R),lid=Math.max(.06,1-this.blink);const lx=l.x+this.gx*.075,ly=l.y+this.gy*.045,rx=r.x+this.gx*.075,ry=r.y+this.gy*.045;this.le.position.set(lx,ly,l.z+.08);this.re.position.set(rx,ry,r.z+.08);this.lp.position.set(lx+this.gx*.025,ly+this.gy*.02,l.z+.145);this.rp.position.set(rx+this.gx*.025,ry+this.gy*.02,r.z+.145);this.le.scale.y=this.re.scale.y=this.lp.scale.y=this.rp.scale.y=lid;
-  this.holo.uniforms.uTime.value=this.t;this.holo.uniforms.uEnergy.value=this.energy;this.holo.uniforms.uState.value=speak?1:this.input.state==="listening"?.55:think?.82:.18;this.root.position.y=Math.sin(this.t*.48)*.025;this.r!.render(this.scene,this.cam);}
- resize(){if(!this.r)return;const w=Math.max(1,this.host.clientWidth),h=Math.max(1,this.host.clientHeight);this.cam.aspect=w/h;this.cam.updateProjectionMatrix();this.r.setSize(w,h,false);}
- dispose(){this.alive=false;cancelAnimationFrame(this.frame);this.ro?.disconnect();this.scene.traverse(o=>{const x=o as THREE.Mesh|THREE.LineSegments;if(x.geometry)x.geometry.dispose();if(x.material){const m=Array.isArray(x.material)?x.material:[x.material];m.forEach(v=>v.dispose())}});this.r?.renderLists.dispose();this.r?.dispose();if(this.r?.domElement.parentElement===this.host)this.host.removeChild(this.r.domElement);this.scene.clear();this.r=null;}
+type Input = {
+  state: AssistantState;
+  micLevel: number;
+  outputLevel: number;
+  outputFeatures: Features | null;
+};
+
+const clamp = (v: number, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, v));
+const damp = (a: number, b: number, dt: number, time: number) =>
+  a + (b - a) * (1 - Math.exp(-dt / Math.max(0.001, time)));
+
+const EYE_L = [33, 7, 163, 144, 145, 153, 154, 155, 133, 246, 161, 160, 159, 158, 157, 173];
+const EYE_R = [263, 249, 390, 373, 374, 380, 381, 382, 362, 466, 388, 387, 386, 385, 384, 398];
+const MOUTH = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 185, 40, 39, 37, 0, 267, 269, 270, 409];
+const MOUTH_INNER = [78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 191, 80, 81, 82, 13, 312, 311, 310, 415];
+const BROWS = [46, 53, 52, 65, 55, 70, 63, 105, 66, 107, 276, 283, 282, 295, 285, 300, 293, 334, 296, 336];
+
+class AvatarEngine {
+  host: HTMLElement;
+  renderer: THREE.WebGLRenderer | null = null;
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(30, 1, 0.1, 100);
+  root = new THREE.Group();
+
+  face!: THREE.Mesh;
+  hologram!: THREE.ShaderMaterial;
+  wire!: THREE.LineSegments;
+  particles!: THREE.Points;
+  leftEye!: THREE.Group;
+  rightEye!: THREE.Group;
+  leftIris!: THREE.Mesh;
+  rightIris!: THREE.Mesh;
+  leftSocket!: THREE.LineLoop;
+  rightSocket!: THREE.LineLoop;
+  mouthOpening!: THREE.Mesh;
+  upperLip!: THREE.Line;
+  lowerLip!: THREE.Line;
+  neck!: THREE.Mesh;
+
+  positions!: Float32Array;
+  base!: Float32Array;
+  frame = 0;
+  clock = new THREE.Clock();
+  resizeObserver!: ResizeObserver;
+  alive = false;
+  time = 0;
+
+  blink = 0;
+  nextBlink = 2.7;
+  gazeX = 0;
+  gazeY = 0;
+  targetGazeX = 0;
+  targetGazeY = 0;
+  nextGaze = 0.8;
+
+  mouth = 0;
+  mouthSpread = 0;
+  energy = 0;
+  headYaw = 0;
+  headPitch = 0;
+
+  input: Input = {
+    state: "idle",
+    micLevel: 0,
+    outputLevel: 0,
+    outputFeatures: null,
+  };
+
+  constructor(host: HTMLElement) {
+    this.host = host;
+  }
+
+  start() {
+    if (this.alive) return;
+
+    try {
+      this.renderer = new THREE.WebGLRenderer({
+        alpha: true,
+        antialias: true,
+        powerPreference: "high-performance",
+      });
+    } catch {
+      return;
+    }
+
+    this.alive = true;
+    const width = Math.max(1, this.host.clientWidth);
+    const height = Math.max(1, this.host.clientHeight);
+
+    this.renderer.setPixelRatio(
+      Math.min(window.devicePixelRatio || 1, /Android/i.test(navigator.userAgent) ? 1.2 : 1.5)
+    );
+    this.renderer.setSize(width, height, false);
+    this.renderer.setClearColor(0x000000, 0);
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.camera.position.set(0, 0.05, 6.1);
+    this.camera.lookAt(0, 0, 0);
+    this.host.appendChild(this.renderer.domElement);
+
+    this.scene.add(new THREE.AmbientLight(0x09252d, 0.8));
+    const key = new THREE.DirectionalLight(0x5beeff, 1.8);
+    key.position.set(2.5, 3.5, 5);
+    this.scene.add(key);
+
+    const parsed = this.parseObj(modelText);
+    this.positions = parsed.vertices;
+    this.base = parsed.vertices.slice();
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(this.positions, 3));
+    geometry.setIndex(new THREE.BufferAttribute(parsed.faces, 1));
+    geometry.scale(0.182, 0.182, 0.182);
+    geometry.translate(0, 0.02, 0.08);
+    geometry.computeVertexNormals();
+
+    const surfaceMaterial = new THREE.MeshPhysicalMaterial({
+      color: 0x48eaff,
+      emissive: 0x063b4a,
+      emissiveIntensity: 0.7,
+      roughness: 0.48,
+      metalness: 0.08,
+      transparent: true,
+      opacity: 0.24,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+
+    this.face = new THREE.Mesh(geometry, surfaceMaterial);
+
+    this.hologram = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uEnergy: { value: 0 },
+        uState: { value: 0 },
+      },
+      vertexShader: `
+        varying vec3 vNormal;
+        varying vec3 vWorld;
+        void main() {
+          vec4 world = modelMatrix * vec4(position, 1.0);
+          vWorld = world.xyz;
+          vNormal = normalize(mat3(modelMatrix) * normal);
+          gl_Position = projectionMatrix * viewMatrix * world;
+        }
+      `,
+      fragmentShader: `
+        uniform float uTime;
+        uniform float uEnergy;
+        uniform float uState;
+        varying vec3 vNormal;
+        varying vec3 vWorld;
+
+        void main() {
+          vec3 viewDir = normalize(cameraPosition - vWorld);
+          float fresnel = pow(1.0 - max(dot(normalize(vNormal), viewDir), 0.0), 2.4);
+          float scan = smoothstep(0.15, 0.95, 0.5 + 0.5 * sin(vWorld.y * 24.0 - uTime * 2.4));
+          float detail = 0.5 + 0.5 * sin(vWorld.x * 37.0 + vWorld.z * 29.0 + uTime * 0.3);
+          float alpha = 0.018 + fresnel * 0.12 + scan * 0.035 + detail * 0.018 + uEnergy * 0.045 + uState * 0.015;
+          gl_FragColor = vec4(0.10, 0.88, 1.0, clamp(alpha, 0.015, 0.24));
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+    });
+
+    this.face.add(new THREE.Mesh(geometry, this.hologram));
+
+    this.wire = new THREE.LineSegments(
+      new THREE.WireframeGeometry(geometry),
+      new THREE.LineBasicMaterial({
+        color: 0x6defff,
+        transparent: true,
+        opacity: 0.22,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      })
+    );
+
+    const pointGeometry = new THREE.BufferGeometry();
+    const source = parsed.vertices;
+    const points: number[] = [];
+    for (let i = 0; i < source.length; i += 9) {
+      points.push(source[i], source[i + 1], source[i + 2]);
+    }
+    pointGeometry.setAttribute("position", new THREE.Float32BufferAttribute(points, 3));
+    pointGeometry.scale(0.182, 0.182, 0.182);
+    pointGeometry.translate(0, 0.02, 0.08);
+    this.particles = new THREE.Points(
+      pointGeometry,
+      new THREE.PointsMaterial({
+        color: 0x9df7ff,
+        size: 0.018,
+        transparent: true,
+        opacity: 0.3,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        sizeAttenuation: true,
+      })
+    );
+
+    const eyeMaterial = new THREE.MeshBasicMaterial({
+      color: 0x072f38,
+      transparent: true,
+      opacity: 0.92,
+    });
+    const irisMaterial = new THREE.MeshBasicMaterial({
+      color: 0x76f5ff,
+      transparent: true,
+      opacity: 0.92,
+      blending: THREE.AdditiveBlending,
+    });
+    const socketMaterial = new THREE.LineBasicMaterial({
+      color: 0x7befff,
+      transparent: true,
+      opacity: 0.3,
+      blending: THREE.AdditiveBlending,
+    });
+
+    const eyeBall = new THREE.SphereGeometry(0.082, 12, 8);
+    const iris = new THREE.SphereGeometry(0.038, 10, 6);
+
+    const makeEye = (ids: number[], right: boolean) => {
+      const center = this.point(ids);
+      const group = new THREE.Group();
+
+      const ball = new THREE.Mesh(eyeBall, eyeMaterial);
+      const irisMesh = new THREE.Mesh(iris, irisMaterial);
+      irisMesh.position.z = 0.035;
+      group.add(ball, irisMesh);
+
+      const ringPoints = ids.map((id) => this.vertex(id));
+      const ringGeometry = new THREE.BufferGeometry().setFromPoints(ringPoints);
+      const ring = new THREE.LineLoop(ringGeometry, socketMaterial);
+
+      group.position.set(center.x, center.y, center.z + 0.055);
+      this.root.add(group, ring);
+
+      return {
+        group,
+        iris: irisMesh,
+        ring,
+      };
+    };
+
+    const left = makeEye(EYE_L, false);
+    const right = makeEye(EYE_R, true);
+    this.leftEye = left.group;
+    this.rightEye = right.group;
+    this.leftIris = left.iris;
+    this.rightIris = right.iris;
+    this.leftSocket = left.ring;
+    this.rightSocket = right.ring;
+
+    const mouthCenter = this.point(MOUTH);
+    const mouthPlane = new THREE.PlaneGeometry(0.34, 0.11);
+    this.mouthOpening = new THREE.Mesh(
+      mouthPlane,
+      new THREE.MeshBasicMaterial({
+        color: 0x00151b,
+        transparent: true,
+        opacity: 0.55,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      })
+    );
+    this.mouthOpening.position.set(mouthCenter.x, mouthCenter.y, mouthCenter.z + 0.06);
+    this.root.add(this.mouthOpening);
+
+    const lipMaterial = new THREE.LineBasicMaterial({
+      color: 0x8af5ff,
+      transparent: true,
+      opacity: 0.38,
+      blending: THREE.AdditiveBlending,
+    });
+
+    const upperPoints = MOUTH.slice(0, 10).map((id) => this.vertex(id));
+    const lowerPoints = MOUTH.slice(10).map((id) => this.vertex(id));
+    this.upperLip = new THREE.Line(new THREE.BufferGeometry().setFromPoints(upperPoints), lipMaterial);
+    this.lowerLip = new THREE.Line(new THREE.BufferGeometry().setFromPoints(lowerPoints), lipMaterial);
+    this.root.add(this.upperLip, this.lowerLip);
+
+    const neckGeometry = new THREE.CylinderGeometry(0.44, 0.62, 1.22, 16, 4, true);
+    neckGeometry.translate(0, -1.55, -0.12);
+    this.neck = new THREE.Mesh(
+      neckGeometry,
+      new THREE.MeshBasicMaterial({
+        color: 0x18bcd1,
+        transparent: true,
+        opacity: 0.055,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      })
+    );
+    const neckWire = new THREE.LineSegments(
+      new THREE.WireframeGeometry(neckGeometry),
+      new THREE.LineBasicMaterial({
+        color: 0x42dceb,
+        transparent: true,
+        opacity: 0.09,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      })
+    );
+
+    this.root.add(this.neck, neckWire, this.face, this.wire, this.particles);
+    this.scene.add(this.root);
+
+    this.resizeObserver = new ResizeObserver(() => this.resize());
+    this.resizeObserver.observe(this.host);
+    this.resize();
+    this.clock.start();
+    this.animate();
+  }
+
+  parseObj(text: string) {
+    const vertices: number[] = [];
+    const faces: number[] = [];
+
+    for (const line of text.split(/\r?\n/)) {
+      if (line.startsWith("v ")) {
+        const p = line.trim().split(/\s+/);
+        vertices.push(Number(p[1]), Number(p[2]), Number(p[3]));
+      } else if (line.startsWith("f ")) {
+        const p = line.trim().split(/\s+/);
+        if (p.length >= 4) {
+          for (let i = 1; i <= 3; i++) {
+            faces.push(Number(p[i].split("/")[0]) - 1);
+          }
+        }
+      }
+    }
+
+    return {
+      vertices: new Float32Array(vertices),
+      faces: new Uint32Array(faces),
+    };
+  }
+
+  vertex(id: number) {
+    return new THREE.Vector3(
+      this.positions[id * 3] * 0.182,
+      this.positions[id * 3 + 1] * 0.182 + 0.02,
+      this.positions[id * 3 + 2] * 0.182 + 0.08
+    );
+  }
+
+  point(ids: number[]) {
+    const p = new THREE.Vector3();
+    for (const id of ids) p.add(this.vertex(id));
+    return p.multiplyScalar(1 / ids.length);
+  }
+
+  update(input: Input) {
+    this.input = input;
+  }
+
+  animate = () => {
+    if (!this.alive || !this.renderer) return;
+
+    this.frame = requestAnimationFrame(this.animate);
+    const dt = Math.min(0.05, this.clock.getDelta());
+    this.time += dt;
+
+    const speaking = this.input.state === "speaking";
+    const thinking = this.input.state === "thinking";
+    const listening = this.input.state === "listening";
+    const features = this.input.outputFeatures;
+
+    const audioRms = features?.rms ?? this.input.outputLevel;
+    const spectralEnergy = features
+      ? clamp(features.low * 0.55 + features.mid * 0.75 + features.high * 0.35)
+      : this.input.outputLevel;
+
+    const targetEnergy = speaking
+      ? clamp(audioRms * 1.7 + spectralEnergy * 0.25)
+      : listening
+        ? clamp(this.input.micLevel * 0.55)
+        : thinking
+          ? 0.16
+          : 0.06;
+
+    this.energy = damp(this.energy, targetEnergy, dt, 0.09);
+
+    this.headYaw = damp(
+      this.headYaw,
+      0.035 * Math.sin(this.time * 0.34) + (thinking ? 0.035 : listening ? -0.018 : 0),
+      dt,
+      0.32
+    );
+    this.headPitch = damp(
+      this.headPitch,
+      0.018 * Math.sin(this.time * 0.27 + 0.7),
+      dt,
+      0.35
+    );
+
+    this.root.rotation.y = this.headYaw;
+    this.root.rotation.x = this.headPitch;
+    this.root.position.y = Math.sin(this.time * 0.5) * 0.018;
+
+    if (this.time >= this.nextBlink) {
+      this.blink = 1;
+      this.nextBlink = this.time + 3.0 + Math.random() * 4.2;
+    } else {
+      this.blink = Math.max(0, this.blink - dt * 10);
+    }
+
+    if (this.time >= this.nextGaze) {
+      const range = thinking ? 0.24 : speaking ? 0.12 : listening ? 0.08 : 0.15;
+      this.targetGazeX = (Math.random() * 2 - 1) * range;
+      this.targetGazeY = (Math.random() * 2 - 1) * range * 0.45;
+      this.nextGaze = this.time + (thinking ? 1.6 : 2.0) + Math.random() * 2.5;
+    }
+
+    this.gazeX = damp(this.gazeX, this.targetGazeX, dt, 0.08);
+    this.gazeY = damp(this.gazeY, this.targetGazeY, dt, 0.08);
+
+    const targetMouth = speaking
+      ? clamp(
+          Math.pow(
+            clamp((audioRms * 1.8 + (features?.mid ?? 0) * 0.5) / 0.62),
+            0.72
+          )
+        )
+      : 0;
+
+    const targetSpread = speaking
+      ? clamp(((features?.mid ?? 0) - (features?.low ?? 0)) * 2.0, -0.4, 0.5)
+      : 0;
+
+    this.mouth = damp(this.mouth, targetMouth, dt, this.mouth < targetMouth ? 0.045 : 0.085);
+    this.mouthSpread = damp(this.mouthSpread, targetSpread, dt, 0.055);
+
+    this.positions.set(this.base);
+
+    // Keep the underlying human mesh intact; only apply restrained facial
+    // deformation for speaking and expression instead of a generic amplitude warp.
+    if (speaking) {
+      for (const id of MOUTH) {
+        const i = id * 3;
+        const side = this.positions[i] < 0 ? -1 : 1;
+        this.positions[i] += side * this.mouthSpread * this.mouth * 0.18;
+        this.positions[i + 1] += (this.positions[i + 1] < -4 ? -0.30 : 0.12) * this.mouth;
+      }
+
+      for (const id of MOUTH_INNER) {
+        const i = id * 3;
+        this.positions[i + 1] += (id === 13 || id === 82 || id === 312 ? 0.10 : -0.14) * this.mouth;
+      }
+    }
+
+    const browLift =
+      this.input.state === "listening"
+        ? 0.07 + this.input.micLevel * 0.05
+        : thinking
+          ? -0.045
+          : speaking
+            ? this.energy * 0.08
+            : 0.01;
+
+    for (const id of BROWS) {
+      this.positions[id * 3 + 1] += browLift;
+    }
+
+    // Real eyelid closure on the face mesh: compress the eye-region vertices
+    // toward the eye center so blinking is not only an overlay animation.
+    const lid = clamp(this.blink);
+    const leftCenter = this.point(EYE_L);
+    const rightCenter = this.point(EYE_R);
+
+    for (const id of EYE_L) {
+      const i = id * 3;
+      const y = this.positions[i + 1] * 0.182 + 0.02;
+      const targetY = leftCenter.y / 0.182 - 0.02;
+      this.positions[i + 1] += (targetY - y) * lid * 0.32;
+    }
+
+    for (const id of EYE_R) {
+      const i = id * 3;
+      const y = this.positions[i + 1] * 0.182 + 0.02;
+      const targetY = rightCenter.y / 0.182 - 0.02;
+      this.positions[i + 1] += (targetY - y) * lid * 0.32;
+    }
+
+    const positionAttribute = this.face.geometry.getAttribute("position") as THREE.BufferAttribute;
+    positionAttribute.needsUpdate = true;
+    this.face.geometry.computeVertexNormals();
+
+    const eyeScaleY = Math.max(0.08, 1 - lid * 0.92);
+    this.leftEye.scale.y = eyeScaleY;
+    this.rightEye.scale.y = eyeScaleY;
+
+    const lookX = this.gazeX * 0.12;
+    const lookY = this.gazeY * 0.07;
+
+    this.leftIris.position.x = lookX;
+    this.leftIris.position.y = lookY;
+    this.rightIris.position.x = lookX;
+    this.rightIris.position.y = lookY;
+
+    this.leftSocket.scale.y = eyeScaleY;
+    this.rightSocket.scale.y = eyeScaleY;
+
+    const mouthWidth = 0.9 + Math.abs(this.mouthSpread) * 0.28;
+    this.mouthOpening.scale.set(mouthWidth, Math.max(0.05, this.mouth * 1.65), 1);
+    this.mouthOpening.material.opacity = 0.28 + this.mouth * 0.28;
+
+    this.hologram.uniforms.uTime.value = this.time;
+    this.hologram.uniforms.uEnergy.value = this.energy;
+    this.hologram.uniforms.uState.value =
+      speaking ? 1 : listening ? 0.55 : thinking ? 0.8 : 0.18;
+
+    (this.wire.material as THREE.LineBasicMaterial).opacity =
+      0.17 + this.energy * 0.16 + (thinking ? 0.04 : 0);
+
+    (this.particles.material as THREE.PointsMaterial).opacity =
+      0.18 + this.energy * 0.3;
+
+    const irisGlow = 0.45 + this.energy * 0.45;
+    (this.leftIris.material as THREE.MeshBasicMaterial).opacity = irisGlow;
+    (this.rightIris.material as THREE.MeshBasicMaterial).opacity = irisGlow;
+
+    this.renderer.render(this.scene, this.camera);
+  };
+
+  resize() {
+    if (!this.renderer) return;
+    const width = Math.max(1, this.host.clientWidth);
+    const height = Math.max(1, this.host.clientHeight);
+    this.camera.aspect = width / height;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(width, height, false);
+  }
+
+  dispose() {
+    this.alive = false;
+    cancelAnimationFrame(this.frame);
+    this.resizeObserver?.disconnect();
+
+    this.scene.traverse((object) => {
+      const item = object as THREE.Mesh | THREE.LineSegments | THREE.Line | THREE.Points;
+      if (item.geometry) item.geometry.dispose();
+
+      if (item.material) {
+        const materials = Array.isArray(item.material) ? item.material : [item.material];
+        materials.forEach((material) => material.dispose());
+      }
+    });
+
+    this.renderer?.renderLists.dispose();
+    this.renderer?.dispose();
+
+    if (this.renderer?.domElement.parentElement === this.host) {
+      this.host.removeChild(this.renderer.domElement);
+    }
+
+    this.scene.clear();
+    this.renderer = null;
+  }
 }
 
-export const AIFace:React.FC<{state:AssistantState;micLevel:number;outputLevel:number;className?:string}>=({state,micLevel,outputLevel,className=""})=>{
- const host=useRef<HTMLDivElement>(null),eng=useRef<Engine|null>(null),input=useRef<Input>({state,micLevel,outputLevel,outputFeatures:null});
- input.current={...input.current,state,micLevel,outputLevel};
- useEffect(()=>{if(!host.current)return;const e=new Engine(host.current);eng.current=e;e.start();let h:any=null,dead=false;if(nativeBridge.isAvailable())void nativeBridge.addListener("outputAudioFeatures",(x:any)=>{if(dead)return;input.current.outputFeatures={rms:+x.rms||0,low:+x.low||0,mid:+x.mid||0,high:+x.high||0,zeroCrossing:+x.zeroCrossing||0,timestamp:+x.timestamp||Date.now()};e.update(input.current)}).then(v=>h=v);return()=>{dead=true;try{h?.remove?.()}catch{}e.dispose();eng.current=null}},[]);useEffect(()=>{eng.current?.update(input.current)},[state,micLevel,outputLevel]);return <div ref={host} className={"relative flex h-full w-full items-center justify-center overflow-visible "+className} aria-label="JARVIS holographic human avatar"/>};
+export const AIFace: React.FC<{
+  state: AssistantState;
+  micLevel: number;
+  outputLevel: number;
+  className?: string;
+}> = ({ state, micLevel, outputLevel, className = "" }) => {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const engineRef = useRef<AvatarEngine | null>(null);
+  const inputRef = useRef<Input>({
+    state,
+    micLevel,
+    outputLevel,
+    outputFeatures: null,
+  });
+
+  inputRef.current = {
+    ...inputRef.current,
+    state,
+    micLevel,
+    outputLevel,
+  };
+
+  useEffect(() => {
+    if (!hostRef.current) return;
+
+    const engine = new AvatarEngine(hostRef.current);
+    engineRef.current = engine;
+    engine.start();
+
+    let listener: { remove: () => Promise<void> } | null = null;
+    let disposed = false;
+
+    if (nativeBridge.isAvailable()) {
+      void nativeBridge
+        .addListener("outputAudioFeatures", (event: any) => {
+          if (disposed) return;
+
+          inputRef.current.outputFeatures = {
+            rms: Number(event?.rms || 0),
+            low: Number(event?.low || 0),
+            mid: Number(event?.mid || 0),
+            high: Number(event?.high || 0),
+            zeroCrossing: Number(event?.zeroCrossing || 0),
+            timestamp: Number(event?.timestamp || Date.now()),
+          };
+
+          engine.update(inputRef.current);
+        })
+        .then((value) => {
+          listener = value;
+        });
+    }
+
+    return () => {
+      disposed = true;
+      void listener?.remove().catch(() => {});
+      engine.dispose();
+      engineRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    engineRef.current?.update(inputRef.current);
+  }, [state, micLevel, outputLevel]);
+
+  return (
+    <div
+      ref={hostRef}
+      className={"relative flex h-full w-full items-center justify-center overflow-visible " + className}
+      aria-label="JARVIS holographic human avatar"
+    />
+  );
+};
