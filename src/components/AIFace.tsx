@@ -108,7 +108,7 @@ class AvatarEngine {
     this.renderer.setSize(width, height, false);
     this.renderer.setClearColor(0x000000, 0);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.camera.position.set(0, 0.05, 6.1);
+    this.camera.position.set(0, 0.04, 5.25);
     this.camera.lookAt(0, 0, 0);
     this.host.appendChild(this.renderer.domElement);
 
@@ -131,16 +131,17 @@ class AvatarEngine {
     const surfaceMaterial = new THREE.MeshPhysicalMaterial({
       color: 0x48eaff,
       emissive: 0x063b4a,
-      emissiveIntensity: 0.7,
-      roughness: 0.48,
+      emissiveIntensity: 1.0,
+      roughness: 0.34,
       metalness: 0.08,
       transparent: true,
-      opacity: 0.24,
+      opacity: 0.62,
       side: THREE.DoubleSide,
       depthWrite: false,
     });
 
     this.face = new THREE.Mesh(geometry, surfaceMaterial);
+    this.face.renderOrder = 4;
 
     this.hologram = new THREE.ShaderMaterial({
       uniforms: {
@@ -180,7 +181,9 @@ class AvatarEngine {
       side: THREE.DoubleSide,
     });
 
-    this.face.add(new THREE.Mesh(geometry, this.hologram));
+    const hologramLayer = new THREE.Mesh(geometry, this.hologram);
+    hologramLayer.renderOrder = 5;
+    this.face.add(hologramLayer);
 
     this.wire = new THREE.LineSegments(
       new THREE.WireframeGeometry(geometry),
@@ -209,7 +212,7 @@ class AvatarEngine {
         color: 0x9df7ff,
         size: 0.018,
         transparent: true,
-        opacity: 0.3,
+        opacity: 0.18,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
         sizeAttenuation: true,
@@ -240,8 +243,8 @@ class AvatarEngine {
       depthWrite: false,
     });
 
-    const eyeBall = new THREE.SphereGeometry(0.082, 12, 8);
-    const iris = new THREE.SphereGeometry(0.038, 10, 6);
+    const eyeBall = new THREE.SphereGeometry(0.092, 16, 10);
+    const iris = new THREE.SphereGeometry(0.043, 12, 8);
 
     const makeEye = (ids: number[], right: boolean) => {
       const center = this.point(ids);
@@ -250,13 +253,16 @@ class AvatarEngine {
       const ball = new THREE.Mesh(eyeBall, eyeMaterial);
       const irisMesh = new THREE.Mesh(iris, irisMaterial);
       irisMesh.position.z = 0.035;
+      ball.renderOrder = 20;
+      irisMesh.renderOrder = 21;
       group.add(ball, irisMesh);
 
       const ringPoints = ids.map((id) => this.vertex(id));
       const ringGeometry = new THREE.BufferGeometry().setFromPoints(ringPoints);
       const ring = new THREE.LineLoop(ringGeometry, socketMaterial);
 
-      group.position.set(center.x, center.y, center.z + 0.055);
+      group.position.set(center.x, center.y, center.z + 0.13);
+      ring.renderOrder = 22;
       this.root.add(group, ring);
 
       return {
@@ -287,7 +293,8 @@ class AvatarEngine {
         depthWrite: false,
       })
     );
-    this.mouthOpening.position.set(mouthCenter.x, mouthCenter.y, mouthCenter.z + 0.06);
+    this.mouthOpening.renderOrder = 24;
+    this.mouthOpening.position.set(mouthCenter.x, mouthCenter.y, mouthCenter.z + 0.13);
     this.root.add(this.mouthOpening);
 
     const lipMaterial = new THREE.LineBasicMaterial({
@@ -301,6 +308,8 @@ class AvatarEngine {
     const lowerPoints = MOUTH.slice(10).map((id) => this.vertex(id));
     this.upperLip = new THREE.Line(new THREE.BufferGeometry().setFromPoints(upperPoints), lipMaterial);
     this.lowerLip = new THREE.Line(new THREE.BufferGeometry().setFromPoints(lowerPoints), lipMaterial);
+    this.upperLip.renderOrder = 25;
+    this.lowerLip.renderOrder = 25;
     this.root.add(this.upperLip, this.lowerLip);
 
     const neckGeometry = new THREE.CylinderGeometry(0.44, 0.62, 1.22, 16, 4, true);
