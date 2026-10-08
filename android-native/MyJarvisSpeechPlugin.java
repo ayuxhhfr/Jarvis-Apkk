@@ -81,18 +81,30 @@ public class MyJarvisSpeechPlugin extends Plugin {
         requestPermissionForAlias("microphone", call, "microphonePermissionCallback");
     }
 
+    @PluginMethod
+    public void checkMicrophonePermission(PluginCall call) {
+        JSObject result = new JSObject();
+        boolean granted = getPermissionState("microphone") == PermissionState.GRANTED;
+        result.put("granted", granted);
+        boolean permanentlyDenied = !granted
+                && getActivity() != null
+                && !androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(
+                        getActivity(), Manifest.permission.RECORD_AUDIO);
+        result.put("permanentlyDenied", permanentlyDenied);
+        call.resolve(result);
+    }
+
     @com.getcapacitor.annotation.PermissionCallback
     private void microphonePermissionCallback(PluginCall call) {
         boolean granted = getPermissionState("microphone") == PermissionState.GRANTED;
         JSObject result = new JSObject();
         result.put("granted", granted);
-        if (granted) {
-            call.resolve(result);
-        } else {
-            call.reject("Microphone permission denied");
-        }
+        result.put("permanentlyDenied", !granted
+                && getActivity() != null
+                && !androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(
+                        getActivity(), Manifest.permission.RECORD_AUDIO));
+        call.resolve(result);
     }
-
 
     @PluginMethod
     public void openApp(PluginCall call) {
