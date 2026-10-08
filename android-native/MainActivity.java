@@ -1,7 +1,5 @@
 package com.jarvis.ai;
 
-import android.Manifest;
-import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.view.View;
 import android.view.Window;
@@ -9,13 +7,9 @@ import android.view.WindowManager;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import androidx.annotation.Nullable;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
-    private static final int AUDIO_PERMISSION = 5001;
-
     private void enterFullscreen() {
         Window window = getWindow();
 
@@ -64,14 +58,6 @@ public class MainActivity extends BridgeActivity {
                 visibility -> enterFullscreen()
         );
 
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(
-                    this,
-                    new String[]{Manifest.permission.RECORD_AUDIO},
-                    AUDIO_PERMISSION
-            );
-        }
     }
 
     @Override
