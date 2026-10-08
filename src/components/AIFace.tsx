@@ -521,7 +521,7 @@ class AvatarEngine {
 
     const mouthWidth = 0.9 + Math.abs(this.mouthSpread) * 0.28;
     this.mouthOpening.scale.set(mouthWidth, Math.max(0.05, this.mouth * 1.65), 1);
-    this.mouthOpening.material.opacity = 0.28 + this.mouth * 0.28;
+    (this.mouthOpening.material as THREE.MeshBasicMaterial).opacity = 0.28 + this.mouth * 0.28;
 
     this.hologram.uniforms.uTime.value = this.time;
     this.hologram.uniforms.uEnergy.value = this.energy;
