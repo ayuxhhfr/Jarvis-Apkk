@@ -1,0 +1,110 @@
+name: JARVIS Android APK Build
+# Rebuild Android APK on every main update or manual dispatch.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  android-debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Prepare Android SDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0"
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Static architecture verification
+        run: |
+          grep -R "gemini-3.1-flash-live-preview" src/config src/services >/dev/null
+          grep -R "gemini-2.5-flash-lite" src server.ts >/dev/null
+          grep -R "jarvis_long_term_memories" src >/dev/null
+          test -f android-native/MyJarvisSpeechPlugin.java
+          test -f android-native/audio/JarvisAudioEngine.kt
+          test -f src/services/nativeBridge.ts
+
+      - name: TypeScript check
+        run: npm run lint
+
+      - name: Web production build
+        run: npm run build
+
+      - name: Generate Capacitor Android project
+        run: npx cap add android
+
+      - name: Declare Android microphone permission
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          text = manifest.read_text(encoding="utf-8")
+          permission = '    <uses-permission android:name="android.permission.RECORD_AUDIO" />\\n'
+          if "android.permission.RECORD_AUDIO" not in text:
+              text = text.replace("<application", permission + "    <application", 1)
+              manifest.write_text(text, encoding="utf-8")
+          assert "android.permission.RECORD_AUDIO" in manifest.read_text(encoding="utf-8")
+          PY
+          grep -n "android.permission.RECORD_AUDIO" android/app/src/main/AndroidManifest.xml
+
+      - name: Enable Kotlin Android compilation
+        run: |
+          sed -i "/classpath 'com.android.tools.build:gradle:/a\\    classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20'" android/build.gradle
+          sed -i "1a apply plugin: 'org.jetbrains.kotlin.android'" android/app/build.gradle
+
+      - name: Install committed native Android sources
+        run: |
+          mkdir -p android/app/src/main/java/com/jarvis/ai
+          cp -R android-native/. android/app/src/main/java/com/jarvis/ai/
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Build debug APK
+        run: |
+          cd android
+          ./gradlew :app:assembleDebug :app:lintDebug --stacktrace
+
+      - name: Verify APK
+        run: |
+          APK="android/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          unzip -t "$APK" >/dev/null
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$APK"
+          sha256sum "$APK" | tee android/app/build/outputs/apk/debug/app-debug.apk.sha256
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-Android-Debug
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/outputs/apk/debug/app-debug.apk.sha256
+          if-no-files-found: error
+          retention-days: 30
