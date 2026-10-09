@@ -30,6 +30,30 @@ const MOUTH = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 185, 40, 39, 3
 const MOUTH_INNER = [78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 191, 80, 81, 82, 13, 312, 311, 310, 415];
 const BROWS = [46, 53, 52, 65, 55, 70, 63, 105, 66, 107, 276, 283, 282, 295, 285, 300, 293, 334, 296, 336];
 
+// The canonical face model is scaled by 0.182, which yields a head roughly
+// 2.82 wide x 3.22 tall x 1.82 deep in world units. A fixed camera distance
+// cannot frame this on both a narrow portrait phone and a wide desktop window:
+// on portrait it crops the chin and temples, on desktop the head shrinks to a
+// speck. These bounds drive a fit-to-view distance instead.
+const FACE_HALF_WIDTH = 1.409;
+const FACE_HALF_HEIGHT = 1.608;
+const FACE_FOV = 30;
+// Target fraction of the tighter viewport axis that the head should occupy.
+const FACE_FRAME_FILL = 0.86;
+// Fallback distance used before the first ResizeObserver measurement.
+const FACE_CAMERA_Z = 6.98;
+
+// Returns the camera distance that frames the whole head on whichever axis is
+// tighter, so the face stays fully visible and correctly proportioned at every
+// aspect ratio without clipping the chin or cutting off the temples.
+const faceCameraDistance = (aspect: number): number => {
+  const t = Math.tan(((FACE_FOV / 2) * Math.PI) / 180);
+  const safeAspect = Number.isFinite(aspect) && aspect > 0 ? aspect : 1;
+  const byHeight = FACE_HALF_HEIGHT / (t * FACE_FRAME_FILL);
+  const byWidth = FACE_HALF_WIDTH / (t * safeAspect * FACE_FRAME_FILL);
+  return Math.max(byHeight, byWidth);
+};
+
 class AvatarEngine {
   host: HTMLElement;
   renderer: THREE.WebGLRenderer | null = null;
@@ -108,14 +132,17 @@ class AvatarEngine {
     this.renderer.setSize(width, height, false);
     this.renderer.setClearColor(0x000000, 0);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.camera.position.set(0, 0.04, 5.25);
+    this.camera.position.set(0, 0.04, FACE_CAMERA_Z);
     this.camera.lookAt(0, 0, 0);
     this.host.appendChild(this.renderer.domElement);
 
-    this.scene.add(new THREE.AmbientLight(0x09252d, 0.8));
-    const key = new THREE.DirectionalLight(0x5beeff, 1.8);
+    this.scene.add(new THREE.AmbientLight(0x1d5563, 1.15));
+    const key = new THREE.DirectionalLight(0x5beeff, 2.6);
     key.position.set(2.5, 3.5, 5);
     this.scene.add(key);
+    const rim = new THREE.DirectionalLight(0x7fd8ff, 1.15);
+    rim.position.set(-3.2, 1.4, -2.6);
+    this.scene.add(rim);
 
     const parsed = this.parseObj(modelText);
     this.positions = parsed.vertices;
@@ -130,14 +157,17 @@ class AvatarEngine {
 
     const surfaceMaterial = new THREE.MeshPhysicalMaterial({
       color: 0x48eaff,
-      emissive: 0x063b4a,
-      emissiveIntensity: 1.0,
+      emissive: 0x0d5f73,
+      emissiveIntensity: 1.35,
       roughness: 0.34,
       metalness: 0.08,
       transparent: true,
-      opacity: 0.62,
+      // The previous 0.62 opacity with depthWrite disabled made the face read as
+      // a faint haze on mobile. Raising the surface opacity is what actually
+      // makes the anatomy legible; brightness alone was never the issue.
+      opacity: 0.86,
       side: THREE.DoubleSide,
-      depthWrite: false,
+      depthWrite: true,
     });
 
     this.face = new THREE.Mesh(geometry, surfaceMaterial);
@@ -190,7 +220,9 @@ class AvatarEngine {
       new THREE.LineBasicMaterial({
         color: 0x6defff,
         transparent: true,
-        opacity: 0.045,
+        // 0.045 was effectively invisible on a phone screen; this is what
+        // produces the readable polygonal mesh following the face.
+        opacity: 0.3,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       })
@@ -548,10 +580,10 @@ class AvatarEngine {
       speaking ? 1 : listening ? 0.55 : thinking ? 0.8 : 0.18;
 
     (this.wire.material as THREE.LineBasicMaterial).opacity =
-      0.035 + this.energy * 0.055 + (thinking ? 0.015 : 0);
+      0.26 + this.energy * 0.16 + (thinking ? 0.08 : 0);
 
     (this.particles.material as THREE.PointsMaterial).opacity =
-      0.12 + this.energy * 0.18;
+      0.16 + this.energy * 0.2;
 
     const irisGlow = 0.45 + this.energy * 0.45;
     (this.leftIris.material as THREE.MeshBasicMaterial).opacity = irisGlow;
@@ -564,7 +596,12 @@ class AvatarEngine {
     if (!this.renderer) return;
     const width = Math.max(1, this.host.clientWidth);
     const height = Math.max(1, this.host.clientHeight);
-    this.camera.aspect = width / height;
+    const aspect = width / height;
+    this.camera.aspect = aspect;
+    // Re-frame on every resize so the head is never cropped on portrait and
+    // never shrinks to an unread speck on desktop.
+    this.camera.position.set(0, 0.04, faceCameraDistance(aspect));
+    this.camera.lookAt(0, 0, 0);
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height, false);
   }
