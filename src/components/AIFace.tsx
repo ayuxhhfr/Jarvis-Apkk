@@ -170,10 +170,10 @@ class AvatarEngine {
       roughness: 0.34,
       metalness: 0.08,
       transparent: true,
-      // The previous 0.62 opacity with depthWrite disabled made the face read as
-      // a faint haze on mobile. Raising the surface opacity is what actually
-      // makes the anatomy legible; brightness alone was never the issue.
-      opacity: 0.9,
+      // Keep the filled surface nearly transparent: the holographic identity
+      // should come from the wireframe, not opaque triangles that can read as
+      // large cyan polygons on mobile GPUs.
+      opacity: 0.12,
       side: THREE.DoubleSide,
       depthWrite: true,
     });
