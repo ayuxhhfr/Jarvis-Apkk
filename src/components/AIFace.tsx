@@ -29,6 +29,10 @@ const EYE_R = [263, 249, 390, 373, 374, 380, 381, 382, 362, 466, 388, 387, 386, 
 const MOUTH = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 185, 40, 39, 37, 0, 267, 269, 270, 409];
 const MOUTH_INNER = [78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 191, 80, 81, 82, 13, 312, 311, 310, 415];
 const BROWS = [46, 53, 52, 65, 55, 70, 63, 105, 66, 107, 276, 283, 282, 295, 285, 300, 293, 334, 296, 336];
+const BROW_L = [70, 63, 105, 66, 107, 55, 65];
+const BROW_R = [336, 296, 334, 293, 300, 285, 295];
+const NOSE_BRIDGE = [168, 6, 197, 195, 5, 4, 1];
+const NOSE_WINGS = [48, 115, 220, 1, 440, 344, 278];
 
 // The canonical face model is scaled by 0.182, which yields a head roughly
 // 2.82 wide x 3.22 tall x 1.82 deep in world units. A fixed camera distance
@@ -74,6 +78,10 @@ class AvatarEngine {
   mouthOpening!: THREE.Mesh;
   upperLip!: THREE.Line;
   lowerLip!: THREE.Line;
+  noseBridge!: THREE.Line;
+  noseWings!: THREE.Line;
+  leftBrow!: THREE.Line;
+  rightBrow!: THREE.Line;
   neck!: THREE.Mesh;
 
   positions!: Float32Array;
@@ -165,7 +173,7 @@ class AvatarEngine {
       // The previous 0.62 opacity with depthWrite disabled made the face read as
       // a faint haze on mobile. Raising the surface opacity is what actually
       // makes the anatomy legible; brightness alone was never the issue.
-      opacity: 0.86,
+      opacity: 0.9,
       side: THREE.DoubleSide,
       depthWrite: true,
     });
@@ -344,6 +352,30 @@ class AvatarEngine {
     this.lowerLip.renderOrder = 25;
     this.root.add(this.upperLip, this.lowerLip);
 
+    const featureMaterial = new THREE.LineBasicMaterial({
+      color: 0x8af5ff,
+      transparent: true,
+      opacity: 0.68,
+      blending: THREE.AdditiveBlending,
+      depthTest: false,
+      depthWrite: false,
+    });
+    const makeFeatureLine = (ids: number[]) =>
+      new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(ids.map((id) => this.vertex(id))),
+        featureMaterial
+      );
+
+    this.noseBridge = makeFeatureLine(NOSE_BRIDGE);
+    this.noseWings = makeFeatureLine(NOSE_WINGS);
+    this.leftBrow = makeFeatureLine(BROW_L);
+    this.rightBrow = makeFeatureLine(BROW_R);
+    this.noseBridge.renderOrder = 25;
+    this.noseWings.renderOrder = 25;
+    this.leftBrow.renderOrder = 25;
+    this.rightBrow.renderOrder = 25;
+    this.root.add(this.noseBridge, this.noseWings, this.leftBrow, this.rightBrow);
+
     const neckGeometry = new THREE.CylinderGeometry(0.44, 0.62, 1.22, 16, 4, true);
     neckGeometry.translate(0, -1.55, -0.12);
     this.neck = new THREE.Mesh(
@@ -418,6 +450,21 @@ class AvatarEngine {
 
   update(input: Input) {
     this.input = input;
+  }
+
+  // Refresh feature overlays from the current deformed vertex array each frame.
+  updateFeatureLine(line: THREE.Line, ids: number[]) {
+    const attribute = line.geometry.getAttribute("position") as THREE.BufferAttribute;
+    for (let i = 0; i < ids.length; i++) {
+      const source = ids[i] * 3;
+      attribute.setXYZ(
+        i,
+        this.positions[source] * 0.182,
+        this.positions[source + 1] * 0.182 + 0.02,
+        this.positions[source + 2] * 0.182 + 0.08
+      );
+    }
+    attribute.needsUpdate = true;
   }
 
   animate = () => {
@@ -531,6 +578,11 @@ class AvatarEngine {
       this.positions[id * 3 + 1] += browLift;
     }
 
+    // The line geometry reads these already-lifted vertices below, so keep
+    // the line objects themselves at the origin to avoid applying lift twice.
+    this.leftBrow.position.y = 0;
+    this.rightBrow.position.y = 0;
+
     // Real eyelid closure on the face mesh: compress the eye-region vertices
     // toward the eye center so blinking is not only an overlay animation.
     const lid = clamp(this.blink);
@@ -554,6 +606,11 @@ class AvatarEngine {
     const positionAttribute = this.face.geometry.getAttribute("position") as THREE.BufferAttribute;
     positionAttribute.needsUpdate = true;
     this.face.geometry.computeVertexNormals();
+
+    this.updateFeatureLine(this.noseBridge, NOSE_BRIDGE);
+    this.updateFeatureLine(this.noseWings, NOSE_WINGS);
+    this.updateFeatureLine(this.leftBrow, BROW_L);
+    this.updateFeatureLine(this.rightBrow, BROW_R);
 
     const eyeScaleY = Math.max(0.08, 1 - lid * 0.92);
     this.leftEye.scale.y = eyeScaleY;
