@@ -20,11 +20,52 @@ export function useVoice() {
   const assistantSpeakingRef = useRef(false);
   const interruptRef = useRef<InterruptCallback | null>(null);
   const lastBargeInAtRef = useRef(0);
+  const playbackActiveRef = useRef(false);
+  const playbackWaitersRef = useRef<Set<() => void>>(new Set());
+
+  const resolvePlaybackWaiters = useCallback(() => {
+    playbackWaitersRef.current.forEach((resolve) => resolve());
+    playbackWaitersRef.current.clear();
+  }, []);
+
+  const handlePlaybackIdle = useCallback(() => {
+    playbackActiveRef.current = false;
+    resolvePlaybackWaiters();
+  }, [resolvePlaybackWaiters]);
+
+  // Playback completion is an actual audio-engine event, not a fixed-duration
+  // state timer. Android emits playbackIdle after its queued PCM reaches the
+  // AudioTrack playback head; web playback uses AudioBufferSource completion.
+  useEffect(() => {
+    audioManager.setOnPlaybackIdle(handlePlaybackIdle);
+
+    let disposed = false;
+    let playbackListener: { remove: () => Promise<void> } | null = null;
+    if (Capacitor.getPlatform() === "android" && nativeBridge.isAvailable()) {
+      void nativeBridge.addListener("playbackIdle", () => {
+        if (!disposed) handlePlaybackIdle();
+      }).then((listener) => {
+        if (disposed) void listener.remove().catch(() => {});
+        else playbackListener = listener;
+      }).catch((err) => {
+        console.warn("[NativeAudio] playbackIdle listener failed:", err);
+      });
+    }
+
+    return () => {
+      disposed = true;
+      audioManager.setOnPlaybackIdle(null);
+      void playbackListener?.remove().catch(() => {});
+      playbackActiveRef.current = false;
+      resolvePlaybackWaiters();
+    };
+  }, [handlePlaybackIdle, resolvePlaybackWaiters]);
 
   const startListening = useCallback(async (
     onAudioChunk?: AudioChunkCallback,
     onInterrupt?: InterruptCallback,
     onSpeechEnd?: () => void,
+    onSpeechStart?: () => void,
   ) => {
     try {
       setPermissionError(null);
@@ -58,6 +99,10 @@ export function useVoice() {
           },
           (speaking, rms) => {
             nativeMicLevelRef.current = Math.min(1, rms * 7);
+
+            if (speaking) {
+              onSpeechStart?.();
+            }
 
             if (speaking && assistantSpeakingRef.current && onInterrupt) {
               const now = Date.now();
@@ -135,8 +180,10 @@ export function useVoice() {
       });
     }
     audioManager.stopPlayback();
+    playbackActiveRef.current = false;
+    resolvePlaybackWaiters();
     setOutputLevel(0);
-  }, []);
+  }, [resolvePlaybackWaiters]);
 
   const setAssistantSpeaking = useCallback((speaking: boolean) => {
     assistantSpeakingRef.current = speaking;
@@ -144,17 +191,26 @@ export function useVoice() {
   }, []);
 
   const playAudioChunk = useCallback((base64Data: string, onEnd?: () => void) => {
+    if (!base64Data || typeof base64Data !== "string") {
+      onEnd?.();
+      return;
+    }
+
+    playbackActiveRef.current = true;
+
     if (Capacitor.getPlatform() === "android" && nativeBridge.isAvailable()) {
       void nativeBridge.playPcm(base64Data, 24000)
         .then(() => onEnd?.())
         .catch((err) => {
           console.error("[NativeAudio] PCM output failed:", err);
+          playbackActiveRef.current = false;
+          resolvePlaybackWaiters();
           onEnd?.();
         });
       return;
     }
     audioManager.playAudioChunk(base64Data, onEnd);
-  }, []);
+  }, [resolvePlaybackWaiters]);
 
   const flushAudioQueue = useCallback(() => {
     if (Capacitor.getPlatform() === "android" && nativeBridge.isAvailable()) {
@@ -164,7 +220,32 @@ export function useVoice() {
     }
   }, []);
 
+  const waitForPlaybackIdle = useCallback(() => {
+    if (!playbackActiveRef.current) return Promise.resolve();
+
+    return new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        playbackWaitersRef.current.delete(finish);
+        resolve();
+      };
+
+      playbackWaitersRef.current.add(finish);
+
+      // The event may have arrived between the active check and waiter
+      // registration. Re-check after registration to close that race.
+      if (!playbackActiveRef.current) finish();
+    });
+  }, []);
+
   const playEncodedAudio = useCallback((base64Data: string, onEnd?: () => void) => {
+    if (!base64Data || typeof base64Data !== "string") {
+      onEnd?.();
+      return;
+    }
+    playbackActiveRef.current = true;
     audioManager.playEncodedAudio(base64Data, onEnd);
   }, []);
 
@@ -207,9 +288,11 @@ export function useVoice() {
     return () => {
       nativePcmCleanupRef.current?.();
       nativePcmCleanupRef.current = null;
+      playbackActiveRef.current = false;
+      resolvePlaybackWaiters();
       audioManager.cleanup();
     };
-  }, []);
+  }, [resolvePlaybackWaiters]);
 
   return {
     isMicActive,
@@ -223,5 +306,7 @@ export function useVoice() {
     setAssistantSpeaking,
     playAudioChunk,
     playEncodedAudio,
+    flushAudioQueue,
+    waitForPlaybackIdle,
   };
 }
