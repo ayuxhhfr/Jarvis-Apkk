@@ -395,9 +395,12 @@ class AvatarEngine {
     const dt = Math.min(0.05, this.clock.getDelta());
     this.time += dt;
 
+    // The new lifecycle states reuse the existing animation branches:
+    // USER_SPEAKING animates like LISTENING (mic-driven), RESPONSE_READY
+    // animates like THINKING. No avatar/animation redesign.
     const speaking = this.input.state === "speaking";
-    const thinking = this.input.state === "thinking";
-    const listening = this.input.state === "listening";
+    const thinking = this.input.state === "thinking" || this.input.state === "response_ready";
+    const listening = this.input.state === "listening" || this.input.state === "user_speaking";
     const features = this.input.outputFeatures;
 
     const audioRms = features?.rms ?? this.input.outputLevel;
@@ -484,7 +487,7 @@ class AvatarEngine {
     }
 
     const browLift =
-      this.input.state === "listening"
+      listening
         ? 0.07 + this.input.micLevel * 0.05
         : thinking
           ? -0.045
