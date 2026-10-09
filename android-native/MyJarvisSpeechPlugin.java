@@ -63,6 +63,11 @@ public class MyJarvisSpeechPlugin extends Plugin {
     @Override
     public void load() {
         super.load();
+        // Real playback-completion signal: JarvisAudioEngine fires this when
+        // every queued PCM frame has actually reached the speaker (and after
+        // flush/stop). The WebView ends its SPEAKING state from this event
+        // instead of fixed-duration timers.
+        audioEngine.setOnPlaybackIdle(() -> notifyListeners("playbackIdle", new JSObject()));
         main.post(() -> tts = new TextToSpeech(getContext(), status -> {
             if (tts != null && status == TextToSpeech.SUCCESS) {
                 tts.setLanguage(Locale.US);
@@ -494,6 +499,18 @@ public class MyJarvisSpeechPlugin extends Plugin {
         main.post(() -> {
             try { audioEngine.enqueuePcmBytes(pcm,sampleRate); call.resolve(); }
             catch(Throwable e){ call.reject(e.getMessage()==null?"Unable to play native PCM":e.getMessage()); }
+        });
+    }
+
+    @PluginMethod
+    public void flushPlayback(PluginCall call) {
+        // Drop queued-but-unplayed PCM without tearing the engine down. The
+        // WebView barge-in path uses this so a new user utterance is not
+        // followed by stale assistant audio. JarvisAudioEngine.flush() also
+        // fires the playbackIdle event because nothing remains to play.
+        main.post(() -> {
+            audioEngine.flush();
+            call.resolve();
         });
     }
 
