@@ -162,7 +162,7 @@ function extendHead(faceVertices: Float32Array, faceIndices: Uint32Array) {
   let previousRing = [...loop];
 
   for (let step = 1; step <= 6; step++) {
-    const t = step / 7;
+    const t = step / 6;
     const ringIds: number[] = [];
     for (let i = 0; i < loop.length; i++) {
       const direction = slerp(pole, rimDirection[i], 1 - t);
