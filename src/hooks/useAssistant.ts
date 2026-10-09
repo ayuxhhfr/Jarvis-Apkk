@@ -220,19 +220,72 @@ export function useAssistant() {
     invalidateVoiceOutput();
   }, [invalidateVoiceOutput]);
 
-  const speakAssistantReply = useCallback((text: string): boolean => {
+  // Speaks the genuine manager reply through the existing voice architecture.
+  //
+  // Previously this returned false whenever the Gemini Live socket was not yet
+  // connected, and every caller treated false as "stay silent". On the very
+  // first turn the Live handshake is still in flight (sendTextMessage starts it
+  // deliberately without awaiting so it never delays the brain request), so the
+  // reply was always discarded and the app produced text with no audio.
+  //
+  // Now it gives Live a bounded chance to come up, then falls back to the
+  // already-configured Gemini TTS path. No second speech system, no simulated
+  // playback, no fabricated audio. Returns true only when real audio was
+  // actually queued.
+  const speakAssistantReply = useCallback(async (text: string): Promise<boolean> => {
     const reply = text.trim();
-    if (!reply || !settingsRef.current.voiceEnabled || !geminiLive.connected) return false;
+    if (!reply || !settingsRef.current.voiceEnabled) return false;
 
-    const outputId = ++voiceOutputSequenceRef.current;
-    activeVoiceOutputIdRef.current = outputId;
-    // Response text is ready now; SPEAKING starts only when the first real
-    // audio chunk arrives from the existing Live playback path.
-    setAssistantSpeaking(false);
-    setState("response_ready");
-    geminiLive.speakText(reply);
-    return true;
-  }, [geminiLive, setAssistantSpeaking]);
+    if (!geminiLive.connected) {
+      try {
+        await Promise.race([
+          connectLive({
+            voice: settingsRef.current.voice,
+            systemInstruction:
+              settingsRef.current.systemInstruction || JARVIS_SYSTEM_INSTRUCTION,
+            model: settingsRef.current.liveModel,
+            thinkingLevel: settingsRef.current.thinkingLevel,
+            voiceOnly: true,
+          }),
+          new Promise((resolve) => window.setTimeout(resolve, 2500)),
+        ]);
+      } catch (err) {
+        console.warn("[Voice] Live connect before speak failed:", err);
+      }
+    }
+
+    if (geminiLive.connected) {
+      const outputId = ++voiceOutputSequenceRef.current;
+      activeVoiceOutputIdRef.current = outputId;
+      // Response text is ready now; SPEAKING starts only when the first real
+      // audio chunk arrives from the existing Live playback path.
+      setAssistantSpeaking(false);
+      setState("response_ready");
+      geminiLive.speakText(reply);
+      return true;
+    }
+
+    // Live unavailable: speak the same genuine reply through the configured
+    // Gemini TTS path that deliverGreeting already relies on.
+    try {
+      const audio = await geminiText.textToSpeech(reply, settingsRef.current.voice);
+      if (!audio) return false;
+      const outputId = ++voiceOutputSequenceRef.current;
+      activeVoiceOutputIdRef.current = outputId;
+      setState("speaking");
+      setAssistantSpeaking(true);
+      playAudioChunk(audio, () => {
+        if (!mountedRef.current || activeVoiceOutputIdRef.current !== outputId) return;
+        activeVoiceOutputIdRef.current = null;
+        setAssistantSpeaking(false);
+        setState("idle");
+      });
+      return true;
+    } catch (err) {
+      console.warn("[Voice] TTS fallback failed:", err);
+      return false;
+    }
+  }, [geminiLive, connectLive, playAudioChunk, setAssistantSpeaking]);
 
   const completeVoicePlayback = useCallback((outputId: number) => {
     void waitForPlaybackIdle().then(() => {
@@ -295,8 +348,12 @@ export function useAssistant() {
         isVoice,
       }]);
 
-      if (isVoice && speakAssistantReply(reply)) {
-        // SPEAKING is entered by the first real Live audio chunk.
+      // speakAssistantReply is async: it must be awaited. Using the Promise
+      // directly in a condition would always be truthy and permanently skip the
+      // native fallback below.
+      const spoke = isVoice ? await speakAssistantReply(reply) : false;
+      if (spoke) {
+        // SPEAKING is entered by the first real audio chunk.
       } else if (isVoice && settingsRef.current.voiceEnabled) {
         await speakAndroid(reply).catch(() => {});
         setState("idle");
@@ -738,7 +795,7 @@ export function useAssistant() {
             },
           } : m));
 
-          if (!reply || !speakAssistantReply(reply)) {
+          if (!reply || !(await speakAssistantReply(reply))) {
             setState("idle");
           }
         } catch (err) {
@@ -992,7 +1049,10 @@ export function useAssistant() {
 
         if (settingsRef.current.selectedProfileId === "ira" && ASSISTANT_PROFILES.ira.initialGreeting) {
           const profile = ASSISTANT_PROFILES.ira;
-          if (profile.initialGreeting) speakAssistantReply(profile.initialGreeting);
+          if (profile.initialGreeting) {
+            // Fire-and-forget: a rejected speak must not break the mic session.
+            void speakAssistantReply(profile.initialGreeting).catch(() => {});
+          }
         }
       } catch (err) {
         resetVoiceTurnTracking();
@@ -1082,7 +1142,7 @@ export function useAssistant() {
             totalMs,
           },
         }]);
-        if (!speakAssistantReply(reply)) {
+        if (!(await speakAssistantReply(reply))) {
           setState("idle");
         }
         return;
@@ -1271,7 +1331,7 @@ export function useAssistant() {
           },
         } : m));
 
-        if (!replyAccumulator || !speakAssistantReply(replyAccumulator)) {
+        if (!replyAccumulator || !(await speakAssistantReply(replyAccumulator))) {
           setState("idle");
         }
       } catch (err) {
@@ -1358,21 +1418,13 @@ export function useAssistant() {
         },
       ]);
 
-      // Use Gemini 3.1 Live as the voice layer for greetings too.
-      // Keep the old TTS path only as a compatibility fallback if Live is unavailable.
+      // Use Gemini 3.1 Live as the voice layer for greetings too. speakAssistantReply
+      // now owns the Live-first / TTS-fallback logic, so there is no second
+      // playback path here. Launch must stay silent, so callers that render the
+      // return greeting without audio simply don't invoke this.
       if (settingsRef.current.voiceEnabled) {
         try {
-          if (!speakAssistantReply(text)) {
-            const audio = await geminiText.textToSpeech(text, settingsRef.current.voice);
-            if (audio) {
-              setState("speaking");
-              setAssistantSpeaking(true);
-              playAudioChunk(audio, () => {
-                setAssistantSpeaking(false);
-                setState("idle");
-              });
-            }
-          }
+          await speakAssistantReply(text);
         } catch (err) {
           console.warn("Failed to generate return greeting:", err);
         }
