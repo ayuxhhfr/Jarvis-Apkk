@@ -8,6 +8,7 @@ import android.util.Base64
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Native realtime PCM output engine.
@@ -25,6 +26,20 @@ class JarvisAudioEngine {
 
     @Volatile
     private var worker: Thread? = null
+
+    /**
+     * Fired when every PCM frame submitted to AudioTrack has actually been
+     * rendered by the hardware (playbackHeadPosition caught up with the
+     * submitted frames) and the queue is empty. Also fired after flush()/stop(),
+     * which both discard pending audio by definition.
+     */
+    @Volatile
+    var onPlaybackIdle: Runnable? = null
+
+    // Total 16-bit PCM frames written into the current AudioTrack. Compared
+    // against playbackHeadPosition to detect real playback completion.
+    private val framesWritten = AtomicLong(0)
+    private val idleNotified = AtomicBoolean(true)
 
     @Synchronized
     fun start(sampleRate: Int = 24000) {
@@ -65,6 +80,8 @@ class JarvisAudioEngine {
 
         track = audioTrack
         queue.clear()
+        framesWritten.set(0)
+        idleNotified.set(true)
         running.set(true)
 
         worker = Thread {
@@ -73,7 +90,11 @@ class JarvisAudioEngine {
                 audioTrack.play()
 
                 while (running.get()) {
-                    val packet = queue.poll(100, TimeUnit.MILLISECONDS) ?: continue
+                    val packet = queue.poll(100, TimeUnit.MILLISECONDS)
+                    if (packet == null) {
+                        maybeNotifyIdle(audioTrack)
+                        continue
+                    }
                     if (!running.get()) break
 
                     var offset = 0
@@ -86,6 +107,9 @@ class JarvisAudioEngine {
                         )
                         if (written <= 0) break
                         offset += written
+                        // 16-bit mono: 2 bytes per frame submitted to the track.
+                        framesWritten.addAndGet((written / 2).toLong())
+                        idleNotified.set(false)
                     }
                 }
             } catch (_: InterruptedException) {
@@ -105,6 +129,24 @@ class JarvisAudioEngine {
         }.apply { name = "JarvisAudioOutput" }
 
         worker?.start()
+    }
+
+    private fun maybeNotifyIdle(audioTrack: AudioTrack) {
+        if (idleNotified.get()) return
+
+        val written = framesWritten.get()
+        if (written <= 0L) {
+            idleNotified.set(true)
+            return
+        }
+
+        // playbackHeadPosition is an unsigned 32-bit frame counter of audio
+        // actually rendered. Unsign it before comparing with frames written.
+        val head = audioTrack.playbackHeadPosition.toLong() and 0xFFFFFFFFL
+        if (head >= written) {
+            idleNotified.set(true)
+            onPlaybackIdle?.run()
+        }
     }
 
     fun enqueuePcmBytes(bytes: ByteArray, sampleRate: Int = 24000) {
@@ -129,6 +171,11 @@ class JarvisAudioEngine {
             try { audioTrack.flush() } catch (_: Throwable) {}
             try { audioTrack.play() } catch (_: Throwable) {}
         }
+        // AudioTrack.flush() discards unplayed audio and rewinds the playback
+        // head, so whatever was pending is gone: playback is idle again.
+        framesWritten.set(0)
+        idleNotified.set(true)
+        onPlaybackIdle?.run()
     }
 
     @Synchronized
@@ -145,6 +192,9 @@ class JarvisAudioEngine {
             try { it.release() } catch (_: Throwable) {}
         }
         track = null
+        framesWritten.set(0)
+        idleNotified.set(true)
+        onPlaybackIdle?.run()
     }
 
     fun clearQueue() {
