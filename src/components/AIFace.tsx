@@ -63,8 +63,10 @@ const faceCameraDistance = (aspect: number): number => {
  * Extend MediaPipe's measured 468-point face mask into a complete head.
  * The face landmarks stay at the beginning of the vertex buffer, so existing
  * eye/lip animation indices remain valid. Cranium sweep follows the approach
- * used by FatihMakes/Mark-LV (core/avatar_mesh.py); the underlying face mesh
- * remains MediaPipe's Apache-2.0 canonical_face_model.obj.
+ * adapted from FatihMakes/Mark-LV (core/avatar_mesh.py, CC BY-NC 4.0;
+ * https://github.com/FatihMakes/Mark-LV). The underlying face mesh remains
+ * MediaPipe's Apache-2.0 canonical_face_model.obj. This adaptation is marked
+ * here so the reference's non-commercial license terms remain visible.
  */
 function extendHead(faceVertices: Float32Array, faceIndices: Uint32Array) {
   const vertices = Array.from(faceVertices);
@@ -160,7 +162,7 @@ function extendHead(faceVertices: Float32Array, faceIndices: Uint32Array) {
   let previousRing = [...loop];
 
   for (let step = 1; step <= 6; step++) {
-    const t = step / 6;
+    const t = step / 7;
     const ringIds: number[] = [];
     for (let i = 0; i < loop.length; i++) {
       const direction = slerp(pole, rimDirection[i], 1 - t);
