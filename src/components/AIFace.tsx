@@ -170,11 +170,11 @@ class AvatarEngine {
       roughness: 0.34,
       metalness: 0.08,
       transparent: true,
-      // Keep the filled surface nearly transparent: the holographic identity
-      // should come from the wireframe, not opaque triangles that can read as
-      // large cyan polygons on mobile GPUs.
-      opacity: 0.12,
-      side: THREE.DoubleSide,
+      // FrontSide only: DoubleSide was the root cause of the dark-triangle
+      // back-face artifact in the upper-left on mobile. Opacity at 0.88 for
+      // strong anatomy readability without blocking the wireframe overlay.
+      opacity: 0.88,
+      side: THREE.FrontSide,
       depthWrite: true,
     });
 
@@ -216,7 +216,7 @@ class AvatarEngine {
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
+      side: THREE.FrontSide,
     });
 
     const hologramLayer = new THREE.Mesh(geometry, this.hologram);
@@ -385,7 +385,7 @@ class AvatarEngine {
         transparent: true,
         opacity: 0.055,
         blending: THREE.AdditiveBlending,
-        side: THREE.DoubleSide,
+        side: THREE.FrontSide,
         depthWrite: false,
       })
     );
