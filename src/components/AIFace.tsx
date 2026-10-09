@@ -39,8 +39,8 @@ const NOSE_WINGS = [48, 115, 220, 1, 440, 344, 278];
 // cannot frame this on both a narrow portrait phone and a wide desktop window:
 // on portrait it crops the chin and temples, on desktop the head shrinks to a
 // speck. These bounds drive a fit-to-view distance instead.
-const FACE_HALF_WIDTH = 1.409;
-const FACE_HALF_HEIGHT = 1.608;
+const FACE_HALF_WIDTH = 1.55;
+const FACE_HALF_HEIGHT = 2.18;
 const FACE_FOV = 30;
 // Target fraction of the tighter viewport axis that the head should occupy.
 const FACE_FRAME_FILL = 0.86;
@@ -57,6 +57,149 @@ const faceCameraDistance = (aspect: number): number => {
   const byWidth = FACE_HALF_WIDTH / (t * safeAspect * FACE_FRAME_FILL);
   return Math.max(byHeight, byWidth);
 };
+
+
+/**
+ * Extend MediaPipe's measured 468-point face mask into a complete head.
+ * The face landmarks stay at the beginning of the vertex buffer, so existing
+ * eye/lip animation indices remain valid. Cranium sweep follows the approach
+ * adapted from FatihMakes/Mark-LV (core/avatar_mesh.py, CC BY-NC 4.0;
+ * https://github.com/FatihMakes/Mark-LV). The underlying face mesh remains
+ * MediaPipe's Apache-2.0 canonical_face_model.obj. This adaptation is marked
+ * here so the reference's non-commercial license terms remain visible.
+ */
+function extendHead(faceVertices: Float32Array, faceIndices: Uint32Array) {
+  const vertices = Array.from(faceVertices);
+  const triangles: number[][] = [];
+  for (let i = 0; i + 2 < faceIndices.length; i += 3) {
+    triangles.push([faceIndices[i], faceIndices[i + 1], faceIndices[i + 2]]);
+  }
+
+  const edgeCounts = new Map<string, { a: number; b: number; count: number }>();
+  for (const [a, b, c] of triangles) {
+    for (const [u, v] of [[a, b], [b, c], [c, a]]) {
+      const key = u < v ? `${u}:${v}` : `${v}:${u}`;
+      const found = edgeCounts.get(key);
+      if (found) found.count++;
+      else edgeCounts.set(key, { a: u, b: v, count: 1 });
+    }
+  }
+
+  const adjacency = new Map<number, number[]>();
+  for (const edge of edgeCounts.values()) {
+    if (edge.count !== 1) continue;
+    for (const [u, v] of [[edge.a, edge.b], [edge.b, edge.a]]) {
+      const list = adjacency.get(u) ?? [];
+      list.push(v);
+      adjacency.set(u, list);
+    }
+  }
+  const firstBoundary = [...edgeCounts.values()].find((edge) => edge.count === 1);
+  if (!firstBoundary) return { vertices: faceVertices, faces: faceIndices };
+
+  const loop = [firstBoundary.a];
+  let previous = -1;
+  let current = firstBoundary.a;
+  for (let guard = 0; guard < adjacency.size + 4; guard++) {
+    const next = (adjacency.get(current) ?? []).find((v) => v !== previous);
+    if (next === undefined || next === loop[0]) break;
+    loop.push(next);
+    previous = current;
+    current = next;
+  }
+
+  const get = (id: number) => [
+    faceVertices[id * 3],
+    faceVertices[id * 3 + 1],
+    faceVertices[id * 3 + 2],
+  ];
+  const centre = [0, 2, -1];
+  const rimCentre = [0, 0];
+  for (const id of loop) {
+    const p = get(id);
+    rimCentre[0] += p[0] / loop.length;
+    rimCentre[1] += p[1] / loop.length;
+  }
+  const angles = loop.map((id) => {
+    const p = get(id);
+    return Math.atan2(p[1] - rimCentre[1], p[0] - rimCentre[0]);
+  });
+  let winding = 0;
+  for (let i = 1; i < angles.length; i++) {
+    let delta = angles[i] - angles[i - 1];
+    while (delta > Math.PI) delta -= Math.PI * 2;
+    while (delta < -Math.PI) delta += Math.PI * 2;
+    winding += delta;
+  }
+  if (winding < 0) loop.reverse();
+
+  const length = (v: number[]) => Math.hypot(v[0], v[1], v[2]);
+  const norm = (v: number[]) => {
+    const l = Math.max(1e-9, length(v));
+    return v.map((n) => n / l);
+  };
+  const dot = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const slerp = (a: number[], b: number[], t: number) => {
+    const cosine = Math.max(-1, Math.min(1, dot(a, b)));
+    const omega = Math.acos(cosine);
+    const sine = Math.sin(omega);
+    if (Math.abs(sine) < 1e-6) return norm(a.map((n, i) => n * (1 - t) + b[i] * t));
+    return norm(a.map((n, i) =>
+      Math.sin((1 - t) * omega) / sine * n + Math.sin(t * omega) / sine * b[i]
+    ));
+  };
+
+  const skullRadii = [8.4, 12.4, 8.2];
+  const pole = norm([0, 0.42, -1]);
+  const ellipsoidRadius = (direction: number[]) =>
+    1 / Math.sqrt(direction.reduce((sum, n, i) => sum + (n / skullRadii[i]) ** 2, 0));
+  const rim = loop.map((id) => get(id));
+  const rimRadius = rim.map((p) => length(p.map((n, i) => n - centre[i])));
+  const rimDirection = rim.map((p, i) =>
+    p.map((n, axis) => (n - centre[axis]) / Math.max(1e-9, rimRadius[i]))
+  );
+  const chinY = Math.min(...Array.from({ length: faceVertices.length / 3 }, (_, id) => faceVertices[id * 3 + 1]));
+  let previousRing = [...loop];
+
+  for (let step = 1; step <= 6; step++) {
+    const t = step / 7;
+    const ringIds: number[] = [];
+    for (let i = 0; i < loop.length; i++) {
+      const direction = slerp(pole, rimDirection[i], 1 - t);
+      const blend = (1 - t) ** 1.7;
+      const radius = ellipsoidRadius(direction) *
+        (1 + (1.04 - 1) * Math.sin(Math.PI * t) ** 0.8);
+      let point = centre.map((n, axis) =>
+        n + direction[axis] * (blend * rimRadius[i] + (1 - blend) * radius)
+      );
+      if (point[1] < chinY) {
+        point[1] = chinY;
+        point[0] *= 0.55;
+        point[2] = -1.6 + (point[2] + 1.6) * 0.55;
+      }
+      if (step === 6) {
+        const poleRadius = ellipsoidRadius(pole);
+        point = centre.map((n, axis) => n + pole[axis] * poleRadius);
+      }
+      const id = vertices.length / 3;
+      vertices.push(point[0], point[1], point[2]);
+      ringIds.push(id);
+    }
+    for (let i = 0; i < loop.length; i++) {
+      const next = (i + 1) % loop.length;
+      triangles.push(
+        [previousRing[i], ringIds[i], ringIds[next]],
+        [previousRing[i], ringIds[next], previousRing[next]]
+      );
+    }
+    previousRing = ringIds;
+  }
+
+  return {
+    vertices: new Float32Array(vertices),
+    faces: new Uint32Array(triangles.flat()),
+  };
+}
 
 class AvatarEngine {
   host: HTMLElement;
@@ -153,12 +296,13 @@ class AvatarEngine {
     this.scene.add(rim);
 
     const parsed = this.parseObj(modelText);
-    this.positions = parsed.vertices;
-    this.base = parsed.vertices.slice();
+    const completeHead = extendHead(parsed.vertices, parsed.faces);
+    this.positions = completeHead.vertices;
+    this.base = completeHead.vertices.slice();
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(this.positions, 3));
-    geometry.setIndex(new THREE.BufferAttribute(parsed.faces, 1));
+    geometry.setIndex(new THREE.BufferAttribute(completeHead.faces, 1));
     geometry.scale(0.182, 0.182, 0.182);
     geometry.translate(0, 0.02, 0.08);
     geometry.computeVertexNormals();
