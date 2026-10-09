@@ -46,7 +46,6 @@ export default function App() {
     clearMessages,
     loadConversation,
     dismissError,
-    deliverGreeting,
   } = useAssistant();
 
   const { browserOpen } = useBrowser();
@@ -162,30 +161,22 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState("");
   const [currentDate, setCurrentDate] = useState("");
 
-  // Initialize sessionService on mount with deterministic flow and deliver return greeting if detected
+  // Initialize sessionService on mount with deterministic flow.
+  //
+  // The automatic return greeting is deliberately NOT delivered here. It used to
+  // run on every launch and did two things the product must not do:
+  //   1. injected a hardcoded "Welcome back, you have been away N minutes /
+  //      All systems are standing by" message into real conversation history,
+  //      where it masqueraded as a fresh live model response, and
+  //   2. spoke that fabricated line out loud before the user asked anything.
+  // Absence duration is computed locally and was therefore invented, not
+  // inferred from the model. Launch stays silent; the empty home screen already
+  // renders its own static welcome UI. Session metadata is still initialized so
+  // real memory/return logic keeps working.
   useEffect(() => {
-    // 1. Load metadata & initialize session (calculates duration, classifies absence)
-    const returnEvent = sessionService.initSession(settings.voice);
-
-    // 2. Determine if a return event exists
-    if (returnEvent && !returnEvent.consumed) {
-      const isIra = settings.selectedProfileId === "ira" || settings.voice === "Aoede";
-      const greetingText = isIra
-        ? returnEvent.suggestedGreeting.ira
-        : returnEvent.suggestedGreeting.jarvis;
-
-      console.log("[JARVIS Return]\nAutomatic return greeting triggered.");
-
-      // 3. Trigger the greeting immediately via the assistant's existing output path
-      deliverGreeting(greetingText);
-
-      // 4. Mark the event as consumed to prevent repeats
-      sessionService.consumeReturnEvent();
-      console.log("[JARVIS Return]\nReturn greeting consumed.");
-    } else {
-      console.log("[JARVIS Return]\nNo return greeting required.");
-    }
-  }, [deliverGreeting, settings.voice, settings.selectedProfileId]);
+    sessionService.initSession(settings.voice);
+    sessionService.consumeReturnEvent();
+  }, [settings.voice]);
 
 
   // Keep the current conversation mirrored into the persistent sidebar index.
@@ -299,8 +290,12 @@ export default function App() {
             </div>
           )}
 
-          {/* Main Interactive Stage */}
-          <main className="relative flex-1 flex flex-col items-center justify-center min-h-0 w-full max-w-7xl mx-auto px-4">
+          {/* Main Interactive Stage. justify-center + no overflow meant that on short
+              portrait screens (or when the soft keyboard opened) the face and mic
+              were pushed out of view with no way to scroll to them. Centering is
+              kept for tall viewports, and overflow-y-auto + py lets short ones
+              scroll, with min-h-0 allowing the flex child to shrink. */}
+          <main className="relative flex-1 flex flex-col items-center justify-center min-h-0 w-full max-w-7xl mx-auto px-4 py-2 overflow-y-auto overscroll-contain">
             {/* Left Information Area (Desktop only) */}
             <aside className="hidden lg:flex absolute left-8 top-12 flex-col gap-5 select-none pointer-events-none font-mono">
               <div className="space-y-1">
@@ -330,11 +325,17 @@ export default function App() {
 
             {/* Center: Digital Earth Globe + Primary Voice Button */}
             <div className="relative flex flex-col items-center justify-center w-full transition-all duration-500 ease-out">
-              {/* Globe Container */}
+              {/* Face container. The previous portrait sizes collapsed to w-40 h-40
+                  (160px square) as soon as any message existed, which made the
+                  head tiny and pushed the mic button up against it. Portrait now
+                  keeps a taller, vh-aware box so the face stays prominent and the
+                  mic/status/response stack below it never overlaps. AIFace itself
+                  re-frames its camera from the measured aspect, so a taller box is
+                  safe and will not crop the head. */}
               <div className={`relative transition-all duration-300 flex items-center justify-center ${
                 messages.length > 0
-                  ? "w-40 h-40 xs:w-44 xs:h-44 sm:w-56 sm:h-56 md:w-72 md:h-72 lg:w-80 lg:h-80"
-                  : "w-52 h-52 xs:w-60 xs:h-60 sm:w-72 sm:h-72 md:w-80 md:h-80 lg:w-96 lg:h-96"
+                  ? "w-[62vw] h-[38vh] max-h-[320px] min-h-[200px] sm:w-72 sm:h-72 md:w-80 md:h-80 lg:w-80 lg:h-80"
+                  : "w-[74vw] h-[42vh] max-h-[400px] min-h-[240px] sm:w-96 sm:h-96 md:w-96 md:h-96 lg:w-96 lg:h-96"
               }`}>
                 <AIFace
                   state={state}
@@ -345,10 +346,10 @@ export default function App() {
               </div>
 
               {/* Primary Microphone Button directly below globe */}
-              <div className={`transition-all duration-300 z-20 ${
+              <div className={`transition-all duration-300 z-20 shrink-0 ${
                 messages.length > 0
-                  ? "mt-1 sm:mt-2"
-                  : "mt-3 sm:mt-5"
+                  ? "mt-3 sm:mt-4"
+                  : "mt-5 sm:mt-7"
               }`}>
                 <VoiceButton
                   state={state}
