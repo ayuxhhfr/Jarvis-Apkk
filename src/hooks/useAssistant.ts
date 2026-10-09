@@ -128,6 +128,24 @@ export function useAssistant() {
   const currentTurnIdRef = useRef<string | null>(null);
   const currentUserIdRef = useRef<string | null>(null);
   const speechReceivedInCurrentTurnRef = useRef<boolean>(false);
+  const mountedRef = useRef(true);
+
+  // Voice-turn identity guards. Native VAD, Gemini transcript completion, and
+  // React callbacks are asynchronous; these refs make one physical utterance
+  // resolve to exactly one manager request even if multiple callbacks arrive.
+  const voiceTurnSequenceRef = useRef(0);
+  const voiceCaptureActiveRef = useRef(false);
+  const userSpeechActiveRef = useRef(false);
+  const activeVoiceTurnIdRef = useRef<number | null>(null);
+  const pendingVoiceTurnIdRef = useRef<number | null>(null);
+  const voiceRequestTurnIdRef = useRef<number | null>(null);
+  const handledVoiceTranscriptIdsRef = useRef<Set<number>>(new Set());
+  const fallbackVoiceTranscriptSequenceRef = useRef(0);
+
+  // Output identity guards prevent an interrupted response from completing
+  // after a newer barge-in has already taken over the interaction.
+  const voiceOutputSequenceRef = useRef(0);
+  const activeVoiceOutputIdRef = useRef<number | null>(null);
 
   // Persist only stable conversation states. During streaming, assistant text can
   // change many times per second; synchronous localStorage JSON serialization
@@ -159,6 +177,8 @@ export function useAssistant() {
     setAssistantSpeaking,
     permissionError,
     clearPermissionError,
+    flushAudioQueue,
+    waitForPlaybackIdle,
   } = useVoice();
 
   // Gemini Live WebSocket bridge hook
@@ -178,6 +198,66 @@ export function useAssistant() {
     systemInstruction: settings.systemInstruction,
     voiceOnly: true,
   });
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const invalidateVoiceOutput = useCallback(() => {
+    activeVoiceOutputIdRef.current = null;
+    voiceOutputSequenceRef.current += 1;
+  }, []);
+
+  const resetVoiceTurnTracking = useCallback((invalidateRequest = true) => {
+    voiceCaptureActiveRef.current = false;
+    userSpeechActiveRef.current = false;
+    activeVoiceTurnIdRef.current = null;
+    pendingVoiceTurnIdRef.current = null;
+    if (invalidateRequest) voiceRequestTurnIdRef.current = null;
+    invalidateVoiceOutput();
+  }, [invalidateVoiceOutput]);
+
+  const speakAssistantReply = useCallback((text: string): boolean => {
+    const reply = text.trim();
+    if (!reply || !settingsRef.current.voiceEnabled || !geminiLive.connected) return false;
+
+    const outputId = ++voiceOutputSequenceRef.current;
+    activeVoiceOutputIdRef.current = outputId;
+    // Response text is ready now; SPEAKING starts only when the first real
+    // audio chunk arrives from the existing Live playback path.
+    setAssistantSpeaking(false);
+    setState("response_ready");
+    geminiLive.speakText(reply);
+    return true;
+  }, [geminiLive, setAssistantSpeaking]);
+
+  const completeVoicePlayback = useCallback((outputId: number) => {
+    void waitForPlaybackIdle().then(() => {
+      if (!mountedRef.current || activeVoiceOutputIdRef.current !== outputId) return;
+      activeVoiceOutputIdRef.current = null;
+      setAssistantSpeaking(false);
+
+      if (voiceCaptureActiveRef.current && isAndroidApp()) {
+        // Android voice turns are one-shot: the capture stayed open through
+        // THINKING/SPEAKING only so real speech could barge in. Once the reply
+        // has fully played, the turn ends back at IDLE.
+        voiceCaptureActiveRef.current = false;
+        userSpeechActiveRef.current = false;
+        activeVoiceTurnIdRef.current = null;
+        pendingVoiceTurnIdRef.current = null;
+        stopListening();
+        setAndroidMicActive(false);
+        setState("idle");
+      } else {
+        // Desktop keeps the microphone open for continuous conversation and
+        // returns to LISTENING, matching the pre-existing behavior.
+        setState(voiceCaptureActiveRef.current ? "listening" : "idle");
+      }
+    });
+  }, [waitForPlaybackIdle, setAssistantSpeaking, stopListening]);
 
   useEffect(() => {
     if (state !== "thinking") return;
@@ -215,10 +295,8 @@ export function useAssistant() {
         isVoice,
       }]);
 
-      if (isVoice && settingsRef.current.voiceEnabled && geminiLive.connected) {
-        setState("speaking");
-        setAssistantSpeaking(true);
-        geminiLive.speakText(reply);
+      if (isVoice && speakAssistantReply(reply)) {
+        // SPEAKING is entered by the first real Live audio chunk.
       } else if (isVoice && settingsRef.current.voiceEnabled) {
         await speakAndroid(reply).catch(() => {});
         setState("idle");
@@ -231,7 +309,7 @@ export function useAssistant() {
       setState("idle");
       return true;
     }
-  }, [geminiLive, setAssistantSpeaking]);
+  }, [geminiLive, setAssistantSpeaking, speakAssistantReply]);
 
 
   /**
@@ -239,6 +317,8 @@ export function useAssistant() {
    */
   const handleInterrupt = useCallback(() => {
     // 1. Stop audio playback & speech
+    invalidateVoiceOutput();
+    flushAudioQueue();
     stopPlayback();
     setAssistantSpeaking(false);
 
@@ -260,7 +340,7 @@ export function useAssistant() {
 
     // 4. Switch to LISTENING immediately if mic is active, or idle
     setState(isMicActive ? "listening" : "idle");
-  }, [stopPlayback, setAssistantSpeaking, sendInterrupt, isMicActive]);
+  }, [invalidateVoiceOutput, flushAudioQueue, stopPlayback, setAssistantSpeaking, sendInterrupt, isMicActive]);
 
   // Native Android VAD detects a genuine user voice onset while JARVIS is
   // speaking. Stop local playback immediately, but DO NOT send audioStreamEnd:
@@ -270,11 +350,61 @@ export function useAssistant() {
     // Stop local audio immediately and suppress any in-flight model packets.
     // Do not send audioStreamEnd here; the user's new speech must keep flowing
     // until the server VAD detects the new turn boundary.
+    invalidateVoiceOutput();
     geminiLive.prepareForBargeIn();
+    flushAudioQueue();
     stopPlayback();
     setAssistantSpeaking(false);
-    setState("listening");
-  }, [geminiLive, stopPlayback, setAssistantSpeaking]);
+    setState("user_speaking");
+  }, [invalidateVoiceOutput, geminiLive, flushAudioQueue, stopPlayback, setAssistantSpeaking]);
+
+  const beginVoiceTurn = useCallback(() => {
+    if (!voiceCaptureActiveRef.current || userSpeechActiveRef.current) return;
+    // A manager request is already in flight for the previous utterance. Do
+    // not create a parallel request from microphone audio while THINKING.
+    if (voiceRequestTurnIdRef.current !== null) return;
+
+    const turnId = ++voiceTurnSequenceRef.current;
+    activeVoiceTurnIdRef.current = turnId;
+    pendingVoiceTurnIdRef.current = null;
+    userSpeechActiveRef.current = true;
+
+    if (
+      stateRef.current === "listening" ||
+      stateRef.current === "speaking" ||
+      stateRef.current === "response_ready"
+    ) {
+      setState("user_speaking");
+    }
+  }, []);
+
+  const handleUserSpeechStart = useCallback(() => {
+    if (!voiceCaptureActiveRef.current || userSpeechActiveRef.current) return;
+
+    // During actual SPEAKING, useVoice invokes the interruption callback after
+    // this onset callback. RESPONSE_READY has no audible playback yet, so the
+    // orchestration layer cancels that queued output directly.
+    if (stateRef.current === "response_ready") {
+      handleAndroidBargeIn();
+    }
+
+    beginVoiceTurn();
+  }, [handleAndroidBargeIn, beginVoiceTurn]);
+
+  const handleUserSpeechEnd = useCallback(() => {
+    if (!voiceCaptureActiveRef.current || !userSpeechActiveRef.current) return;
+
+    const turnId = activeVoiceTurnIdRef.current;
+    userSpeechActiveRef.current = false;
+    activeVoiceTurnIdRef.current = null;
+
+    if (turnId == null || voiceRequestTurnIdRef.current !== null) return;
+
+    pendingVoiceTurnIdRef.current = turnId;
+    setState("thinking");
+    // This is the single end-of-turn signal for this native VAD utterance.
+    sendAudioStreamEnd();
+  }, [sendAudioStreamEnd]);
 
   // Connect to Gemini Live on mount with temporal context
   useEffect(() => {
@@ -370,9 +500,10 @@ export function useAssistant() {
   useEffect(() => {
     // Audio chunk received from Gemini Live
     const unsubAudio = geminiLive.onAudio((base64Audio) => {
+      if (activeVoiceOutputIdRef.current === null) return;
       speechReceivedInCurrentTurnRef.current = true;
 
-      // Transition to speaking state
+      // Actual audio output has started; RESPONSE_READY now becomes SPEAKING.
       if (stateRef.current !== "speaking") {
         setState("speaking");
         setAssistantSpeaking(true);
@@ -434,13 +565,42 @@ export function useAssistant() {
       }
     });
 
-    // User speech recognition transcript from Gemini Live
+    // User speech recognition transcript from Gemini Live. Gemini Live emits
+    // one buffered transcript event per utterance; the transcript id and voice
+    // turn id together protect against duplicate native/server/effect callbacks.
     const unsubUserTranscript = geminiLive.onUserTranscript(async ({ text: userText, finished }) => {
       const clean = userText.trim();
-      if (!clean) return;
+      if (!clean || !voiceCaptureActiveRef.current) return;
+
+      const normalizedTranscriptId = ++fallbackVoiceTranscriptSequenceRef.current;
+      if (handledVoiceTranscriptIdsRef.current.has(normalizedTranscriptId)) return;
+      handledVoiceTranscriptIdsRef.current.add(normalizedTranscriptId);
+      if (handledVoiceTranscriptIdsRef.current.size > 40) {
+        const oldest = handledVoiceTranscriptIdsRef.current.values().next().value;
+        if (typeof oldest === "number") handledVoiceTranscriptIdsRef.current.delete(oldest);
+      }
+
+      let turnId = pendingVoiceTurnIdRef.current ?? activeVoiceTurnIdRef.current;
+      if (turnId == null) {
+        // Desktop/web relies on Gemini server VAD instead of native speech
+        // activity callbacks, so the first finalized transcript creates the turn.
+        if (!finished) return;
+        turnId = ++voiceTurnSequenceRef.current;
+      }
+
+      if (pendingVoiceTurnIdRef.current !== null && turnId !== pendingVoiceTurnIdRef.current) return;
+      if (voiceRequestTurnIdRef.current !== null) return;
+
+      if (finished) {
+        pendingVoiceTurnIdRef.current = null;
+        activeVoiceTurnIdRef.current = null;
+        userSpeechActiveRef.current = false;
+        voiceRequestTurnIdRef.current = turnId;
+        setState("thinking");
+      }
 
       if (!currentUserIdRef.current) {
-        const id = "user-" + Date.now();
+        const id = "user-voice-" + turnId;
         currentUserIdRef.current = id;
         setMessages((prev) => [
           ...prev,
@@ -479,6 +639,7 @@ export function useAssistant() {
             currentUserIdRef.current = null;
             return;
           }
+          if (voiceRequestTurnIdRef.current !== turnId) return;
           const browserIntent = parseBrowserIntent(clean, browserManager.isCurrentSiteYouTube());
           if (browserIntent) browserManager.executeTool(browserIntent.name, browserIntent.args);
 
@@ -501,6 +662,7 @@ export function useAssistant() {
           }
 
           const memoryContext = await memoryService.getRelevantContext(clean).catch(() => "");
+          if (voiceRequestTurnIdRef.current !== turnId) return;
           const temporalContext = sessionService.getTemporalContext(settingsRef.current.assistantName, settingsRef.current.voice);
           const browserContext = browserManager.getAssistantContext();
           const activeFrame = screenShareService.isSharing() ? screenShareService.captureFrame(true) || screenShareService.getLatestFrame() : null;
@@ -527,6 +689,7 @@ export function useAssistant() {
             image: activeFrame ? { data: activeFrame.base64, mimeType: activeFrame.mimeType } : undefined,
             model: settingsRef.current.brainModel || CHAT_MODEL,
           }, (chunk) => {
+            if (voiceRequestTurnIdRef.current !== turnId) return;
             if (!firstResponseAt) firstResponseAt = Date.now();
             reply += chunk;
             const now = Date.now();
@@ -557,6 +720,7 @@ export function useAssistant() {
             }
           });
 
+          if (voiceRequestTurnIdRef.current !== turnId) return;
           const completedAt = Date.now();
           const totalMs = Math.max(0, Math.round(performance.now() - requestPerf));
           setMessages((prev) => prev.map((m) => m.id === assistantMsgId ? {
@@ -574,14 +738,11 @@ export function useAssistant() {
             },
           } : m));
 
-          if (reply && settingsRef.current.voiceEnabled && geminiLive.connected) {
-            setState("speaking");
-            setAssistantSpeaking(true);
-            geminiLive.speakText(reply);
-          } else {
+          if (!reply || !speakAssistantReply(reply)) {
             setState("idle");
           }
         } catch (err) {
+          if (voiceRequestTurnIdRef.current !== turnId) return;
           const message = err instanceof Error ? err.message : "Failed to get response from JARVIS manager";
           console.warn("Manager voice turn failed:", err);
           setMessages((prev) => prev.filter((m) => m.id !== assistantMsgId));
@@ -591,12 +752,17 @@ export function useAssistant() {
           setAssistantSpeaking(false);
         } finally {
           currentUserIdRef.current = null;
+          if (voiceRequestTurnIdRef.current === turnId) {
+            voiceRequestTurnIdRef.current = null;
+          }
         }
       }
     });
 
     // Server-side interruption acknowledgement
     const unsubInterrupted = geminiLive.onInterrupted(() => {
+      invalidateVoiceOutput();
+      flushAudioQueue();
       stopPlayback();
       setAssistantSpeaking(false);
       if (currentTurnIdRef.current) {
@@ -610,7 +776,7 @@ export function useAssistant() {
         currentTurnIdRef.current = null;
         setCurrentTranscript("");
       }
-      setState(isMicActive ? "listening" : "idle");
+      setState(voiceCaptureActiveRef.current ? "listening" : "idle");
     });
 
     // Tool call received from Gemini Live
@@ -669,7 +835,8 @@ export function useAssistant() {
 
     });
 
-    // Model turn complete
+    // Live generation is complete. The assistant remains SPEAKING until the
+    // actual playback engine reports that its queued audio has drained.
     const unsubTurnComplete = geminiLive.onTurnComplete(() => {
       speechReceivedInCurrentTurnRef.current = false;
       if (currentTurnIdRef.current) {
@@ -683,13 +850,10 @@ export function useAssistant() {
         );
       }
 
-      // If audio is finished or voice is disabled, return to listening/idle
-      setTimeout(() => {
-        if (stateRef.current === "speaking" || stateRef.current === "thinking") {
-          setState(isMicActive ? "listening" : "idle");
-          setAssistantSpeaking(false);
-        }
-      }, 80);
+      const outputId = activeVoiceOutputIdRef.current;
+      if (outputId !== null) {
+        completeVoicePlayback(outputId);
+      }
     });
 
     return () => {
@@ -700,22 +864,35 @@ export function useAssistant() {
       unsubToolCall();
       unsubTurnComplete();
     };
-  }, [geminiLive, isMicActive, playAudioChunk, setAssistantSpeaking, stopPlayback]);
+  }, [
+    geminiLive,
+    playAudioChunk,
+    setAssistantSpeaking,
+    stopPlayback,
+    invalidateVoiceOutput,
+    flushAudioQueue,
+    runAndroidAppCommand,
+    speakAssistantReply,
+    completeVoicePlayback,
+    learnImplicitMemory,
+  ]);
 
   /**
    * Toggle Voice Microphone.
    */
   const toggleListening = useCallback(async () => {
     if (isAndroidApp()) {
-      // Android now uses the same raw PCM Live path as desktop, but connects
-      // directly to Google's Live WebSocket instead of the Node server.
+      // Android uses native PCM capture plus native VAD. The capture remains
+      // open through THINKING/SPEAKING so real user speech can barge in.
       if (androidMicActive) {
+        resetVoiceTurnTracking();
         try {
           // Flush Google's automatic VAD before stopping the local mic.
           sendInterrupt();
           stopListening();
         } finally {
           setAndroidMicActive(false);
+          flushAudioQueue();
           stopPlayback();
           setAssistantSpeaking(false);
           setState("idle");
@@ -724,6 +901,8 @@ export function useAssistant() {
       }
 
       try {
+        resetVoiceTurnTracking();
+        voiceCaptureActiveRef.current = true;
         stopPlayback();
         setAssistantSpeaking(false);
 
@@ -742,27 +921,24 @@ export function useAssistant() {
               persistentMemory,
             model: settingsRef.current.liveModel,
             thinkingLevel: settingsRef.current.thinkingLevel,
-          voiceOnly: true,
+            voiceOnly: true,
           });
         }
 
-        setState("listening");
-        setAndroidMicActive(true);
-
         await startListening(
-          (base64Pcm) => sendAudio(base64Pcm),
+          (base64Pcm) => {
+            if (voiceCaptureActiveRef.current) sendAudio(base64Pcm);
+          },
           () => handleAndroidBargeIn(),
-          () => {
-            // One-shot Android turn: close the microphone as soon as the user's utterance ends.
-            if (stateRef.current === "listening" || stateRef.current === "speaking") {
-              stopListening();
-              setAndroidMicActive(false);
-              setState("thinking");
-              sendAudioStreamEnd();
-            }
-          }
+          handleUserSpeechEnd,
+          handleUserSpeechStart,
         );
+
+        setAndroidMicActive(true);
+        setState("listening");
       } catch (err) {
+        resetVoiceTurnTracking();
+        stopListening();
         setAndroidMicActive(false);
         setState("idle");
         setActiveError(err instanceof Error ? err.message : "Failed to activate microphone");
@@ -771,13 +947,19 @@ export function useAssistant() {
     }
 
     if (isMicActive) {
+      resetVoiceTurnTracking();
       stopListening();
+      flushAudioQueue();
       stopPlayback();
       setAssistantSpeaking(false);
       setState("idle");
     } else {
       try {
-        if (stateRef.current === "speaking") {
+        resetVoiceTurnTracking();
+        voiceCaptureActiveRef.current = true;
+
+        if (stateRef.current === "speaking" || stateRef.current === "response_ready") {
+          flushAudioQueue();
           stopPlayback();
           setAssistantSpeaking(false);
         }
@@ -799,18 +981,45 @@ export function useAssistant() {
           voiceOnly: true,
           });
         }
+
+        await startListening(
+          (base64Pcm) => {
+            if (voiceCaptureActiveRef.current) sendAudio(base64Pcm);
+          },
+          () => handleInterrupt(),
+        );
         setState("listening");
+
         if (settingsRef.current.selectedProfileId === "ira" && ASSISTANT_PROFILES.ira.initialGreeting) {
           const profile = ASSISTANT_PROFILES.ira;
-          if (geminiLive.connected && profile.initialGreeting) geminiLive.speakText(profile.initialGreeting);
+          if (profile.initialGreeting) speakAssistantReply(profile.initialGreeting);
         }
-        await startListening((base64Pcm) => sendAudio(base64Pcm), () => handleInterrupt());
       } catch (err) {
+        resetVoiceTurnTracking();
+        stopListening();
         setState("idle");
         setActiveError(err instanceof Error ? err.message : "Failed to activate microphone");
       }
     }
-  }, [androidMicActive, isMicActive, stopListening, stopPlayback, setAssistantSpeaking, geminiLive, connectLive, startListening, sendAudio, sendAudioStreamEnd, handleInterrupt, handleAndroidBargeIn]);
+  }, [
+    androidMicActive,
+    isMicActive,
+    resetVoiceTurnTracking,
+    stopListening,
+    flushAudioQueue,
+    stopPlayback,
+    setAssistantSpeaking,
+    geminiLive,
+    connectLive,
+    startListening,
+    sendAudio,
+    sendInterrupt,
+    handleInterrupt,
+    handleAndroidBargeIn,
+    handleUserSpeechEnd,
+    handleUserSpeechStart,
+    speakAssistantReply,
+  ]);
 
   /**
    * Send text message.
@@ -821,6 +1030,8 @@ export function useAssistant() {
       if (!trimmed && !image) return;
 
       // Stop any current speaking/playback
+      invalidateVoiceOutput();
+      flushAudioQueue();
       stopPlayback();
       setAssistantSpeaking(false);
 
@@ -871,11 +1082,7 @@ export function useAssistant() {
             totalMs,
           },
         }]);
-        if (settingsRef.current.voiceEnabled && geminiLive.connected) {
-          setState("speaking");
-          setAssistantSpeaking(true);
-          geminiLive.speakText(reply);
-        } else {
+        if (!speakAssistantReply(reply)) {
           setState("idle");
         }
         return;
@@ -1064,11 +1271,7 @@ export function useAssistant() {
           },
         } : m));
 
-        if (settingsRef.current.voiceEnabled && replyAccumulator && geminiLive.connected) {
-          setState("speaking");
-          setAssistantSpeaking(true);
-          geminiLive.speakText(replyAccumulator);
-        } else {
+        if (!replyAccumulator || !speakAssistantReply(replyAccumulator)) {
           setState("idle");
         }
       } catch (err) {
@@ -1076,17 +1279,18 @@ export function useAssistant() {
         setActiveError(err instanceof Error ? err.message : "Failed to get response from JARVIS manager");
       }
     },
-    [geminiLive, stopPlayback, setAssistantSpeaking, isMicActive, connectLive]
+    [geminiLive, invalidateVoiceOutput, flushAudioQueue, stopPlayback, setAssistantSpeaking, isMicActive, connectLive, speakAssistantReply]
   );
 
   sendTextMessageRef.current = sendTextMessage;
 
   const loadConversation = useCallback((conversation: ChatMessage[]) => {
+    invalidateVoiceOutput();
     stopPlayback();
     setAssistantSpeaking(false);
     setMessages(Array.isArray(conversation) ? conversation : []);
     setState("idle");
-  }, [stopPlayback, setAssistantSpeaking]);
+  }, [invalidateVoiceOutput, stopPlayback, setAssistantSpeaking]);
 
   const clearMessages = useCallback(() => {
     setMessages([]);
@@ -1158,14 +1362,15 @@ export function useAssistant() {
       // Keep the old TTS path only as a compatibility fallback if Live is unavailable.
       if (settingsRef.current.voiceEnabled) {
         try {
-          if (geminiLive.connected) {
-            setAssistantSpeaking(true);
-            geminiLive.speakText(text);
-          } else {
+          if (!speakAssistantReply(text)) {
             const audio = await geminiText.textToSpeech(text, settingsRef.current.voice);
             if (audio) {
+              setState("speaking");
               setAssistantSpeaking(true);
-              playAudioChunk(audio, () => setAssistantSpeaking(false));
+              playAudioChunk(audio, () => {
+                setAssistantSpeaking(false);
+                setState("idle");
+              });
             }
           }
         } catch (err) {
@@ -1173,7 +1378,7 @@ export function useAssistant() {
         }
       }
     },
-    [geminiLive, playAudioChunk, setAssistantSpeaking]
+    [geminiLive, playAudioChunk, setAssistantSpeaking, speakAssistantReply]
   );
 
   useEffect(() => () => {
