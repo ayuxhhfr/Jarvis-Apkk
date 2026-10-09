@@ -12,6 +12,7 @@ export interface AudioVisualizerLevels {
 
 export type AudioChunkCallback = (base64Pcm: string) => void;
 export type InterruptCallback = () => void;
+export type PlaybackIdleCallback = () => void;
 
 export class AudioManager {
   private inputAudioCtx: AudioContext | null = null;
@@ -39,6 +40,7 @@ export class AudioManager {
 
   private onAudioChunk: AudioChunkCallback | null = null;
   private onInterrupt: InterruptCallback | null = null;
+  private onPlaybackIdle: PlaybackIdleCallback | null = null;
 
   private micLevel: number = 0;
   private outputLevel: number = 0;
@@ -59,6 +61,16 @@ export class AudioManager {
 
   public setOnInterrupt(callback: InterruptCallback) {
     this.onInterrupt = callback;
+  }
+
+  public setOnPlaybackIdle(callback: PlaybackIdleCallback | null) {
+    this.onPlaybackIdle = callback;
+  }
+
+  private notifyPlaybackIdle(): void {
+    if (this.activeSources.length === 0 && !this.pendingStartupAudio) {
+      this.onPlaybackIdle?.();
+    }
   }
 
   public setAssistantSpeaking(speaking: boolean) {
@@ -196,6 +208,7 @@ export class AudioManager {
   public playAudioChunk(base64Data: string, onEnd?: () => void): void {
     if (!base64Data || typeof base64Data !== "string") {
       if (onEnd) onEnd();
+      this.notifyPlaybackIdle();
       return;
     }
 
@@ -233,6 +246,7 @@ export class AudioManager {
       const float32 = this.base64ToFloat32Pcm(base64Data);
       if (!float32 || float32.length === 0) {
         if (onEnd) onEnd();
+        this.notifyPlaybackIdle();
         return;
       }
 
@@ -287,17 +301,20 @@ export class AudioManager {
             }
           }, this.STREAM_IDLE_RESET_MS);
           if (onEnd) onEnd();
+          this.notifyPlaybackIdle();
         }
       };
     } catch (err) {
       console.error("Failed to play audio chunk:", err);
       if (onEnd) onEnd();
+      this.notifyPlaybackIdle();
     }
   }
 
   public async playEncodedAudio(base64Data: string, onEnd?: () => void): Promise<void> {
     if (!base64Data || typeof base64Data !== "string") {
       if (onEnd) onEnd();
+      this.notifyPlaybackIdle();
       return;
     }
 
@@ -349,11 +366,13 @@ export class AudioManager {
                 if (onEnd) {
                   onEnd();
                 }
+                this.notifyPlaybackIdle();
               }
             };
           } catch (playErr) {
             console.error("Error starting decoded audio playback:", playErr);
             if (onEnd) onEnd();
+            this.notifyPlaybackIdle();
           }
         },
         (decodeErr) => {
@@ -364,6 +383,7 @@ export class AudioManager {
     } catch (err) {
       console.error("Failed to process encoded audio:", err);
       if (onEnd) onEnd();
+      this.notifyPlaybackIdle();
     }
   }
 
