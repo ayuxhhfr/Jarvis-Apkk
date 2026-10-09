@@ -1,6 +1,6 @@
 /**
  * Subtle vertical status indicator for JARVIS.
- * Shows LISTENING, THINKING, SPEAKING, and IDLE states with active state highlighted.
+ * Shows the real voice lifecycle states with the active state highlighted.
  */
 
 import React from "react";
@@ -13,7 +13,9 @@ interface StatusIndicatorProps {
 
 const STATES: Array<{ key: AssistantState; label: string }> = [
   { key: "listening", label: "LISTENING" },
+  { key: "user_speaking", label: "USER SPEAKING" },
   { key: "thinking", label: "THINKING" },
+  { key: "response_ready", label: "RESPONSE READY" },
   { key: "speaking", label: "SPEAKING" },
   { key: "idle", label: "IDLE" },
 ];

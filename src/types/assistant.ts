@@ -5,7 +5,9 @@
 export type AssistantState =
   | "idle"
   | "listening"
+  | "user_speaking"
   | "thinking"
+  | "response_ready"
   | "speaking";
 
 export type ConnectionStatus =

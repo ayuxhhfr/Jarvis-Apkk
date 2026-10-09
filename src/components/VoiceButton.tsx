@@ -5,7 +5,7 @@
  */
 
 import React from "react";
-import { Mic, MicOff, Square, Loader2 } from "lucide-react";
+import { Mic, Loader2 } from "lucide-react";
 import { AssistantState } from "../types/assistant";
 
 interface VoiceButtonProps {
@@ -31,8 +31,12 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
     switch (state) {
       case "listening":
         return "Listening";
+      case "user_speaking":
+        return "You’re speaking";
       case "thinking":
         return "Thinking";
+      case "response_ready":
+        return "Response ready";
       case "speaking":
         return "Speaking";
       case "idle":
@@ -51,14 +55,20 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   };
 
   // Determine current active audio amplitude
-  const activeLevel = state === "listening" ? micLevel : state === "speaking" ? outputLevel : 0;
+  const activeLevel =
+    state === "listening" || state === "user_speaking"
+      ? micLevel
+      : state === "speaking"
+        ? outputLevel
+        : 0;
+  const isUserVoiceActive = state === "listening" || state === "user_speaking";
 
   return (
     <div className={`flex flex-col items-center justify-center gap-3 select-none ${className}`}>
       {/* Outer interactive button */}
       <div className="relative flex items-center justify-center">
         {/* Audio Reactivity Glow Rings */}
-        {(state === "listening" || state === "speaking") && (
+        {(isUserVoiceActive || state === "speaking") && (
           <>
             <div
               className="absolute inset-0 rounded-full bg-[#20d9ff]/15 blur-md pointer-events-none transition-transform duration-100"
@@ -81,14 +91,14 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
           onClick={handleClick}
           aria-label={getStatusLabel()}
           className={`relative z-10 flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 md:w-18 md:h-18 rounded-full transition-all duration-300 shadow-lg active:scale-95 cursor-pointer ${
-            isMicActive || state === "speaking"
+            isMicActive || state === "speaking" || state === "user_speaking"
               ? "bg-[#0b1b15] border-2 border-[#20d9ff] text-[#20d9ff] shadow-[0_0_20px_rgba(0,255,170,0.25)]"
-              : state === "thinking"
+              : state === "thinking" || state === "response_ready"
               ? "bg-[#111618] border-2 border-cyan-300/70 text-cyan-400"
               : "bg-[#111417] border border-white/[0.12] text-neutral-300 hover:text-white hover:border-[#20d9ff]/60 hover:bg-[#151c19]"
           }`}
         >
-          {state === "thinking" ? (
+          {state === "thinking" || state === "response_ready" ? (
             <Loader2 className="w-6 h-6 animate-spin text-cyan-400" />
           ) : state === "speaking" ? (
             <div className="flex items-center justify-center gap-0.5 h-6">
@@ -118,9 +128,9 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
       <div className="flex flex-col items-center">
         <span
           className={`font-mono text-xs tracking-[0.2em] uppercase transition-colors duration-200 ${
-            state === "listening" || state === "speaking"
+            isUserVoiceActive || state === "speaking"
               ? "text-[#20d9ff] font-medium"
-              : state === "thinking"
+              : state === "thinking" || state === "response_ready"
               ? "text-cyan-400"
               : "text-neutral-400"
           }`}
