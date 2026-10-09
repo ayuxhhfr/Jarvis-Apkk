@@ -91,6 +91,29 @@ jobs:
           cd android
           ./gradlew :app:assembleDebug :app:lintDebug --stacktrace
 
+      - name: Package face source files
+        run: |
+          mkdir -p face-source/src/components/avatar
+          cp src/components/AIFace.tsx face-source/src/components/AIFace.tsx
+          cp src/components/avatar/canonicalFaceModel.obj face-source/src/components/avatar/canonicalFaceModel.obj
+          cat > face-source/README.txt <<'EOF'
+JARVIS center face source files
+- src/components/AIFace.tsx: Three.js rendering, face feature overlays, lighting, framing, animation.
+- src/components/avatar/canonicalFaceModel.obj: 3D head mesh geometry.
+Extract this ZIP preserving the folder structure.
+EOF
+          cd face-source
+          zip -r ../JARVIS-Face-Source.zip .
+          cd ..
+
+      - name: Upload face source ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-Face-Source
+          path: JARVIS-Face-Source.zip
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Verify APK
         run: |
           APK="android/app/build/outputs/apk/debug/app-debug.apk"
