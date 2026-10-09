@@ -427,4 +427,123 @@ export const AIOrb: React.FC<AIOrbProps> = ({
 
       // Damped rotation lerp
       globeGroup.rotation.y += (targetRotationY - globeGroup.rotation.y) * 0.08;
-      globeGroup.rotation.x += (targetRotationX - globeGroup.rota
+      globeGroup.rotation.x += (targetRotationX - globeGroup.rotation.x) * 0.08;
+
+      // Scale & Atmosphere pulse
+      currentScale += (targetScale - currentScale) * 0.12;
+      coreMesh.scale.setScalar(currentScale);
+      pointsMesh.scale.setScalar(currentScale);
+      latGroup.scale.setScalar(currentScale);
+      lonGroup.scale.setScalar(currentScale);
+
+      currentAtmoIntensity += (targetAtmo - currentAtmoIntensity) * 0.1;
+      atmoMat.uniforms.uIntensity.value = currentAtmoIntensity;
+      atmoMesh.scale.setScalar(currentScale);
+
+      // Thinking State: Scanning Ring Sweep
+      if (isThinkingState) {
+        scanRingMat.opacity += (0.65 - scanRingMat.opacity) * 0.1;
+        scanY += scanDirection * 0.045;
+        if (scanY > 1.8) {
+          scanDirection = -1;
+        } else if (scanY < -1.8) {
+          scanDirection = 1;
+        }
+        scanRing.position.y = scanY;
+        const scanScale = Math.sqrt(Math.max(0, 4 - scanY * scanY)) * 0.5 + 0.1;
+        scanRing.scale.set(scanScale, scanScale, 1);
+      } else {
+        scanRingMat.opacity += (0 - scanRingMat.opacity) * 0.1;
+      }
+
+      // Satellite orbital motion
+      const t1 = elapsedTime * 0.6;
+      orbit1.beacon.position.set(orbit1.radius * Math.cos(t1), 0, orbit1.radius * Math.sin(t1));
+
+      const t2 = -elapsedTime * 0.45;
+      orbit2.beacon.position.set(orbit2.radius * Math.cos(t2), 0, orbit2.radius * Math.sin(t2));
+
+      // Subtle float for atmospheric particles
+      dustMesh.rotation.y = elapsedTime * 0.02;
+      dustMesh.rotation.x = Math.sin(elapsedTime * 0.05) * 0.05;
+
+      const now = performance.now();
+      if (now - lastRenderTime >= targetFrameMs) {
+        lastRenderTime = now;
+        renderer.render(scene, camera);
+      }
+    };
+
+    animate();
+
+    // Resize Handler using ResizeObserver to handle CSS-driven layout reflows dynamically
+    let resizeFrame: number | null = null;
+    let appliedWidth = width;
+    let appliedHeight = height;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      if (!entries || entries.length === 0) return;
+      const entry = entries[0];
+      const nextWidth = Math.round(entry.contentRect.width || container.clientWidth || 360);
+      const nextHeight = Math.round(entry.contentRect.height || container.clientHeight || 360);
+
+      if (Math.abs(nextWidth - appliedWidth) < 2 && Math.abs(nextHeight - appliedHeight) < 2) {
+        return;
+      }
+
+      if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = null;
+        width = nextWidth;
+        height = nextHeight;
+        appliedWidth = width;
+        appliedHeight = height;
+        camera.aspect = width / Math.max(1, height);
+        camera.updateProjectionMatrix();
+        renderer.setSize(width, height);
+      });
+    });
+    resizeObserver.observe(container);
+
+    // Cleanup
+    return () => {
+      cancelAnimationFrame(animId);
+      if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
+      resizeObserver.disconnect();
+      container.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      container.removeEventListener("touchstart", onTouchStart);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", onTouchEnd);
+
+      if (container.contains(renderer.domElement)) {
+        container.removeChild(renderer.domElement);
+      }
+      renderer.dispose();
+      coreGeo.dispose();
+      coreMat.dispose();
+      gridMat.dispose();
+      pointsGeo.dispose();
+      pointsMat.dispose();
+      atmoGeo.dispose();
+      atmoMat.dispose();
+      dustGeo.dispose();
+      dustMat.dispose();
+      scanRingGeo.dispose();
+      scanRingMat.dispose();
+    };
+  }, []);
+
+  return (
+    <div
+      ref={containerRef}
+      className={`relative flex items-center justify-center cursor-grab active:cursor-grabbing select-none ${className}`}
+      style={{ touchAction: "none" }}
+      aria-label="JARVIS Core Digital Globe"
+    >
+      {/* Subtle outer radial gradient glow behind the globe */}
+      <div className="absolute inset-0 pointer-events-none rounded-full bg-[radial-gradient(circle_at_center,rgba(32,217,255,0.06)_0%,rgba(16,185,220,0.02)_45%,transparent_70%)]" />
+    </div>
+  );
+};
